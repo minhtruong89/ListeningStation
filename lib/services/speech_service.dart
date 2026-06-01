@@ -37,7 +37,7 @@ class SpeechService implements ISpeechService {
     _dataDir = join(appDir.path, 'ListeningStation');
 
     final tempDir = await getTemporaryDirectory();
-    _tempMp3Path = join(tempDir.path, 'ListeningStation_TTS_\${DateTime.now().microsecondsSinceEpoch}.mp3');
+    _tempMp3Path = join(tempDir.path, 'ListeningStation_TTS_${DateTime.now().microsecondsSinceEpoch}.mp3');
     
     _loadApiKey();
   }
@@ -53,7 +53,7 @@ class SpeechService implements ISpeechService {
         }
       }
     } catch (e) {
-      debugPrint("Error loading OpenAI Key for TTS: \$e");
+      debugPrint("Error loading OpenAI Key for TTS: $e");
     }
   }
 
@@ -74,44 +74,32 @@ class SpeechService implements ISpeechService {
     stop(); // Silently stop any active playback
 
     try {
-      const modelName = "gpt-4o-audio-preview";
-      const systemPrompt = "You are a pure Text-to-Speech engine. Your ONLY job is to repeat exactly what the user says. Do not answer questions, do not apologize, do not add any commentary. Repeat the exact text using a gentle and friendly female Southern Vietnamese voice (giọng nữ miền Nam), speak slowly and clearly, maintain a warm and caring tone, add natural pauses between sentences, and ensure the speech is easy to understand for elderly listeners.";
-
       final requestBody = {
-        "model": modelName,
-        "temperature": 0.3,
-        "modalities": ["text", "audio"],
-        "audio": {"voice": "nova", "format": "mp3"},
-        "messages": [
-          {"role": "system", "content": systemPrompt},
-          {"role": "user", "content": "Repeat this exact text: '\$text'"}
-        ]
+        "model": "tts-1",
+        "input": text,
+        "voice": "nova"
       };
 
       final response = await _httpClient.post(
-        Uri.parse("https://api.openai.com/v1/chat/completions"),
+        Uri.parse("https://api.openai.com/v1/audio/speech"),
         headers: {
-          "Authorization": "Bearer \$_apiKey",
+          "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
         },
         body: jsonEncode(requestBody),
       );
 
       if (response.statusCode != 200) {
-        debugPrint("OpenAI API Error for TTS (\${response.statusCode}): \${response.body}");
+        debugPrint("OpenAI API Error for TTS (${response.statusCode}): ${response.body}");
         return;
       }
 
-      final doc = jsonDecode(response.body);
-      final String? base64Audio = doc['choices'][0]['message']['audio']['data'];
-
-      if (base64Audio == null || base64Audio.isEmpty) return;
-
-      final audioBytes = base64.decode(base64Audio);
+      final audioBytes = response.bodyBytes;
+      if (audioBytes.isEmpty) return;
       
       final mp3File = File(_tempMp3Path);
       await mp3File.writeAsBytes(audioBytes);
-      debugPrint("TTS MP3 saved to: \$_tempMp3Path");
+      debugPrint("TTS MP3 saved to: $_tempMp3Path");
 
       // Play using just_audio player
       await _audioPlayer.setFilePath(_tempMp3Path);
@@ -120,7 +108,7 @@ class SpeechService implements ISpeechService {
       await Future.delayed(const Duration(milliseconds: 200));
       await _audioPlayer.play();
     } catch (e) {
-      debugPrint("OpenAI TTS Error: \$e");
+      debugPrint("OpenAI TTS Error: $e");
     }
   }
 

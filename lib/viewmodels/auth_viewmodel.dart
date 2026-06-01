@@ -132,15 +132,41 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> handleQrScanned(String rawQr) async {
+    debugPrint("[AuthViewModel] QR Scanned callback triggered. Raw QR payload: '$rawQr'");
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
     _ruleStatusText = "Đang đọc mã QR...";
     notifyListeners();
-
+ 
     try {
       final cleanQr = _qrService.decodeQrCode(rawQr);
+      debugPrint("[AuthViewModel] QR Decoded result: '$cleanQr'");
       if (cleanQr != null && cleanQr.isNotEmpty) {
         await _verifyAndNavigateAsync(cleanQr);
+      } else {
+        debugPrint("[AuthViewModel] Warning: QR decoded result is null or empty");
+      }
+    } finally {
+      _isProcessing = false;
+      notifyListeners();
+    }
+  }
+ 
+  Future<void> handleOcrScanned(String imagePath) async {
+    debugPrint("[AuthViewModel] OCR Image trigger. Image path: '$imagePath'");
+    if (_isProcessing || _isVerified) return;
+    _isProcessing = true;
+    _ruleStatusText = "Đang nhận dạng văn bản...";
+    notifyListeners();
+ 
+    try {
+      final ocrText = await _ocrService.extractTextAsync(imagePath);
+      debugPrint("[AuthViewModel] OCR Extracted raw text length: ${ocrText.length} characters");
+      debugPrint("[AuthViewModel] OCR Extracted content:\n$ocrText");
+      if (ocrText.isNotEmpty && ocrText.length > 5) {
+        await _verifyAndNavigateAsync(ocrText);
+      } else {
+        debugPrint("[AuthViewModel] Warning: OCR extracted text too short (< 5 chars) or empty. Skipping verification.");
       }
     } finally {
       _isProcessing = false;
@@ -148,17 +174,22 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> handleOcrScanned(String imagePath) async {
+  Future<void> handleOcrImageFrame(dynamic inputImage) async {
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
-    _ruleStatusText = "Đang nhận dạng văn bản...";
     notifyListeners();
 
     try {
-      final ocrText = await _ocrService.extractTextAsync(imagePath);
+      final ocrText = await _ocrService.extractFromInputImage(inputImage);
       if (ocrText.isNotEmpty && ocrText.length > 5) {
+        debugPrint("[AuthViewModel] Live Stream OCR Extracted raw text length: ${ocrText.length} characters");
+        debugPrint("[AuthViewModel] Live Stream OCR Extracted content:\n$ocrText");
+        
+        // Scan the extracted text for any potential operator matching info (like name or ID number)
         await _verifyAndNavigateAsync(ocrText);
       }
+    } catch (e) {
+      debugPrint("[AuthViewModel] Error in Live Stream OCR: $e");
     } finally {
       _isProcessing = false;
       notifyListeners();
@@ -175,7 +206,7 @@ class AuthViewModel extends ChangeNotifier {
       // Check if already in display list
       final isDuplicate = _verifiedOperatorsDisplay.any((d) => d.idNumber == op.idNumber);
       if (isDuplicate) {
-        await _speechService.speakAsync("\${op.name} đã xác thực rồi");
+        await _speechService.speakAsync("${op.name} đã xác thực rồi");
         return;
       }
 
@@ -189,7 +220,7 @@ class AuthViewModel extends ChangeNotifier {
         dailyCountText: "(Lần $dailyCount/ngày)",
       ));
 
-      await _speechService.speakAsync("Đã xác nhận \${op.name}");
+      await _speechService.speakAsync("Đã xác nhận ${op.name}");
       notifyListeners();
 
       if (_verifiedOperators.length >= _requiredCount) {
@@ -201,7 +232,7 @@ class AuthViewModel extends ChangeNotifier {
         
         for (var ruleResult in ruleResults) {
           if (ruleResult.isValid) {
-            _ruleStatusText = "Kiểm tra \${ruleResult.id}: Thành công";
+            _ruleStatusText = "Kiểm tra ${ruleResult.id}: Thành công";
             notifyListeners();
           } else {
             _ruleStatusText = ruleResult.message;

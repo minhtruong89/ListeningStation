@@ -150,7 +150,7 @@ class ResultView extends StatelessWidget {
                                         ],
                                       ),
                                       child: Text(
-                                        "\${_formatCurrency(resultVm.decision?.approvedAmount ?? 0.0)} VNĐ",
+                                        "${_formatCurrency(resultVm.decision?.approvedAmount ?? 0.0)} VNĐ",
                                         style: AppStyles.titleHuge.copyWith(
                                           color: AppStyles.successColor,
                                           fontSize: 36.0,

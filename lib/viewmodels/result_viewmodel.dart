@@ -61,7 +61,7 @@ class ResultViewModel extends ChangeNotifier {
         _decision = RuleResult(
           isEligible: finalAmount > 0,
           approvedAmount: finalAmount,
-          explanation: "Hạn mức \${_formatCurrency(finalAmount)}đ được phê duyệt dựa trên chỉ số Distress Score (\${score.toStringAsFixed(0)}%) và hạn mức cho phép của nhân viên (\${_formatCurrency(minLimit)}đ - \${_formatCurrency(maxLimit)}đ).",
+          explanation: "Hạn mức ${_formatCurrency(finalAmount)}đ được phê duyệt dựa trên chỉ số Distress Score (${score.toStringAsFixed(0)}%) và hạn mức cho phép của nhân viên (${_formatCurrency(minLimit)}đ - ${_formatCurrency(maxLimit)}đ).",
           computedAt: DateTime.now(),
         );
 
@@ -77,7 +77,7 @@ class ResultViewModel extends ChangeNotifier {
         _isResultReady = true;
       }
     } catch (e) {
-      _distressScore = "Lỗi tính toán: \$e";
+      _distressScore = "Lỗi tính toán: $e";
       _decision = RuleResult(
         isEligible: false,
         approvedAmount: 0.0,

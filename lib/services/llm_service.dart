@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart';
@@ -252,7 +251,7 @@ class LLMService implements ILLMService {
       final messages = [
         {
           "role": "system",
-          "content": "[CONVERSATION RULES]\n\$_conversationPrompt\n\n[MANNER OF SPEECH]\n\$_mannerOfSpeechPrompt"
+          "content": "[CONVERSATION RULES]\n$_conversationPrompt\n\n[MANNER OF SPEECH]\n$_mannerOfSpeechPrompt"
         }
       ];
 
@@ -271,14 +270,14 @@ class LLMService implements ILLMService {
       final response = await _httpClient.post(
         Uri.parse(_baseUrl),
         headers: {
-          "Authorization": "Bearer \$_apiKey",
+          "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
         },
         body: jsonEncode(requestBody),
       );
 
       if (response.statusCode != 200) {
-        return "Lỗi API: \${response.statusCode}";
+        return "Lỗi API: ${response.statusCode}";
       }
 
       final doc = jsonDecode(response.body);
@@ -415,19 +414,19 @@ class LLMService implements ILLMService {
       final response = await _httpClient.post(
         Uri.parse(_baseUrl),
         headers: {
-          "Authorization": "Bearer \$_apiKey",
+          "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
         },
         body: jsonEncode(requestBody),
       );
 
-      if (response.statusCode != 200) return "Lỗi API: \${response.statusCode}";
+      if (response.statusCode != 200) return "Lỗi API: ${response.statusCode}";
 
       final doc = jsonDecode(response.body);
       final reply = doc['choices'][0]['message']['content']?.toString();
       return reply ?? "Không thể tạo bản tóm tắt.";
     } catch (ex) {
-      return "Lỗi: \$ex";
+      return "Lỗi: $ex";
     }
   }
 
@@ -493,19 +492,19 @@ class LLMService implements ILLMService {
       final response = await _httpClient.post(
         Uri.parse(_baseUrl),
         headers: {
-          "Authorization": "Bearer \$_apiKey",
+          "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
         },
         body: jsonEncode(requestBody),
       );
 
-      if (response.statusCode != 200) return "Lỗi API: \${response.statusCode}";
+      if (response.statusCode != 200) return "Lỗi API: ${response.statusCode}";
 
       final doc = jsonDecode(response.body);
       final reply = doc['choices'][0]['message']['content']?.toString();
       return reply ?? "Không thể xác nhận kết thúc.";
     } catch (ex) {
-      return "Lỗi: \$ex";
+      return "Lỗi: $ex";
     }
   }
 
@@ -530,19 +529,19 @@ class LLMService implements ILLMService {
       final response = await _httpClient.post(
         Uri.parse(_baseUrl),
         headers: {
-          "Authorization": "Bearer \$_apiKey",
+          "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
         },
         body: jsonEncode(requestBody),
       );
 
-      if (response.statusCode != 200) return "Lỗi API: \${response.statusCode}";
+      if (response.statusCode != 200) return "Lỗi API: ${response.statusCode}";
 
       final doc = jsonDecode(response.body);
       final reply = doc['choices'][0]['message']['content']?.toString();
       return reply ?? "Không thể tính điểm.";
     } catch (ex) {
-      return "Lỗi: \$ex";
+      return "Lỗi: $ex";
     }
   }
 }

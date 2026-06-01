@@ -33,7 +33,7 @@ class RuleCheckResult {
 
 abstract class IRuleEngineService {
   RuleResult evaluate(Patient patient);
-  Future<List<RuleCheckResult>> evaluateSystemRulesAsync();
+  Future<List<RuleCheckResult>> evaluateSystemRulesAsync({Function(RuleCheckResult)? onProgress});
   Future<double> getSpentInPeriodAsync(String period);
   Future<bool> isWithinBudgetLimitAsync(String period, double limit);
   Future<int> getRequiredOperatorCountAsync(bool isInsideWorkingHours);
@@ -81,14 +81,14 @@ class RuleEngineService implements IRuleEngineService {
       isEligible: approvedAmount > 0,
       approvedAmount: approvedAmount,
       explanation: approvedAmount > 0
-          ? "Approved based on family size (\${patient.familySize}) and medical conditions. Adjusted for income (\\\$\${patient.monthlyIncome.toStringAsFixed(0)})."
+          ? "Approved based on family size (${patient.familySize}) and medical conditions. Adjusted for income (\$${patient.monthlyIncome.toStringAsFixed(0)})."
           : "Income exceeds threshold for financial support.",
       computedAt: DateTime.now(),
     );
   }
 
   @override
-  Future<List<RuleCheckResult>> evaluateSystemRulesAsync() async {
+  Future<List<RuleCheckResult>> evaluateSystemRulesAsync({Function(RuleCheckResult)? onProgress}) async {
     await _initDataDir();
     final List<RuleCheckResult> results = [];
     String jsonPath = join(_dataDir, "rule_engine.json");
@@ -136,14 +136,20 @@ class RuleEngineService implements IRuleEngineService {
               break;
           }
 
-          debugPrint("[RULE CHECK] ID: \$id, Valid: \$isValid, Message: \$messageVi");
-          results.add(RuleCheckResult(id: id, message: messageVi, isValid: isValid));
+          debugPrint("[RULE CHECK] ID: $id, Valid: $isValid, Message: $messageVi");
+          final result = RuleCheckResult(id: id, message: messageVi, isValid: isValid);
+          results.add(result);
+
+          if (onProgress != null) {
+            onProgress(result);
+            await Future.delayed(const Duration(seconds: 1));
+          }
 
           if (!isValid) break; // Terminate early on first validation failure
         }
       }
     } catch (ex) {
-      results.add(RuleCheckResult(id: "JSON_ERROR", message: "Lỗi đọc file rule: \$ex", isValid: false));
+      results.add(RuleCheckResult(id: "JSON_ERROR", message: "Lỗi đọc file rule: $ex", isValid: false));
     }
 
     return results;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../utils/styles.dart';
@@ -14,10 +15,16 @@ class AuthView extends StatefulWidget {
 
 class _AuthViewState extends State<AuthView> {
   final TextEditingController _manualInputController = TextEditingController();
+  final MobileScannerController _scannerController = MobileScannerController(
+    detectionSpeed: DetectionSpeed.normal,
+    facing: CameraFacing.back,
+    returnImage: true,
+  );
 
   @override
   void dispose() {
     _manualInputController.dispose();
+    _scannerController.dispose();
     super.dispose();
   }
 
@@ -51,16 +58,34 @@ class _AuthViewState extends State<AuthView> {
                           children: [
                             // 1. Camera QR Scanner Viewport
                             MobileScanner(
-                              controller: MobileScannerController(
-                                detectionSpeed: DetectionSpeed.normal,
-                                facing: CameraFacing.back,
-                              ),
+                              controller: _scannerController,
                               onDetect: (capture) {
+                                // 1. Process Barcodes / QR Code
                                 final List<Barcode> barcodes = capture.barcodes;
                                 for (final barcode in barcodes) {
                                   if (barcode.rawValue != null) {
                                     authVm.handleQrScanned(barcode.rawValue!);
                                     break;
+                                  }
+                                }
+
+                                // 2. Process OCR from current image frame on-the-fly
+                                final image = capture.image;
+                                final size = capture.size;
+                                if (image != null) {
+                                  try {
+                                    final inputImage = InputImage.fromBytes(
+                                      bytes: image,
+                                      metadata: InputImageMetadata(
+                                        size: Size(size.width, size.height),
+                                        rotation: InputImageRotation.rotation0deg, // standard camera frame angle
+                                        format: InputImageFormat.nv21,
+                                        bytesPerRow: size.width.toInt(),
+                                      ),
+                                    );
+                                    authVm.handleOcrImageFrame(inputImage);
+                                  } catch (e) {
+                                    debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
                                   }
                                 }
                               },
@@ -138,43 +163,45 @@ class _AuthViewState extends State<AuthView> {
                     // RIGHT COLUMN: Sign-In status and Manual input panel
                     Expanded(
                       flex: 5,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // App Title Header
-                          const Row(
-                            children: [
-                              Icon(Icons.hearing, color: AppStyles.primaryAccent, size: 28.0),
-                              SizedBox(width: 8.0),
-                              Text(
-                                "TRẠM LẮNG NGHE",
-                                style: AppStyles.titleLarge,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12.0),
-                          
-                          // Stage Verification Info Card
-                          Container(
-                            padding: const EdgeInsets.all(16.0),
-                            decoration: AppStyles.glassDecoration(borderColor: AppStyles.primaryAccent.withValues(alpha: 0.3)),
-                            child: Text(
-                              authVm.verificationInfoText,
-                              style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // App Title Header
+                            const Row(
+                              children: [
+                                Icon(Icons.hearing, color: AppStyles.primaryAccent, size: 28.0),
+                                SizedBox(width: 8.0),
+                                Text(
+                                  "TRẠM LẮNG NGHE",
+                                  style: AppStyles.titleLarge,
+                                ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(height: 16.0),
+                            const SizedBox(height: 12.0),
+                            
+                            // Stage Verification Info Card
+                            Container(
+                              padding: const EdgeInsets.all(12.0),
+                              decoration: AppStyles.glassDecoration(borderColor: AppStyles.primaryAccent.withValues(alpha: 0.3)),
+                              child: Text(
+                                authVm.verificationInfoText,
+                                style: AppStyles.bodyMedium.copyWith(color: AppStyles.primaryAccent),
+                              ),
+                            ),
+                            const SizedBox(height: 12.0),
 
-                          // Verified list of operators
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16.0),
+                            // Verified list of operators
+                            Container(
+                              height: 150.0, // Fixed constraint height for scroll list
+                              padding: const EdgeInsets.all(12.0),
                               decoration: AppStyles.glassDecoration(),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text("Người Bảo Chứng Đã Xác Nhận", style: AppStyles.bodyLarge),
-                                  const SizedBox(height: 12.0),
+                                  const SizedBox(height: 8.0),
                                   Expanded(
                                     child: authVm.verifiedOperatorsDisplay.isEmpty
                                         ? const Center(
@@ -188,20 +215,20 @@ class _AuthViewState extends State<AuthView> {
                                             itemBuilder: (context, index) {
                                               final op = authVm.verifiedOperatorsDisplay[index];
                                               return Container(
-                                                margin: const EdgeInsets.only(bottom: 8.0),
-                                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                                                margin: const EdgeInsets.only(bottom: 6.0),
+                                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                                 decoration: BoxDecoration(
                                                   color: AppStyles.glassCardBorder.withValues(alpha: 0.3),
                                                   borderRadius: BorderRadius.circular(8.0),
                                                 ),
                                                 child: Row(
                                                   children: [
-                                                    const Icon(Icons.check_circle, color: AppStyles.successColor),
-                                                    const SizedBox(width: 12.0),
+                                                    const Icon(Icons.check_circle, color: AppStyles.successColor, size: 18.0),
+                                                    const SizedBox(width: 8.0),
                                                     Expanded(
-                                                      child: Text(op.displayName, style: AppStyles.bodyLarge),
+                                                      child: Text(op.displayName, style: AppStyles.bodyMedium.copyWith(color: AppStyles.textPrimary)),
                                                     ),
-                                                    Text(op.dailyCountText, style: AppStyles.bodyMedium),
+                                                    Text(op.dailyCountText, style: AppStyles.caption),
                                                   ],
                                                 ),
                                               );
@@ -211,88 +238,89 @@ class _AuthViewState extends State<AuthView> {
                                 ],
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 16.0),
+                            const SizedBox(height: 12.0),
 
-                          // Status text container
-                          if (authVm.ruleStatusText.isNotEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12.0),
-                              decoration: AppStyles.glassDecoration(
-                                borderColor: authVm.ruleStatusText.contains("Thành công")
-                                    ? AppStyles.successColor.withValues(alpha: 0.5)
-                                    : AppStyles.errorColor.withValues(alpha: 0.5),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    authVm.ruleStatusText.contains("Thành công") ? Icons.check : Icons.warning_amber_outlined,
-                                    color: authVm.ruleStatusText.contains("Thành công") ? AppStyles.successColor : AppStyles.errorColor,
-                                  ),
-                                  const SizedBox(width: 12.0),
-                                  Expanded(
-                                    child: Text(
-                                      authVm.ruleStatusText,
-                                      style: AppStyles.bodyMedium.copyWith(
-                                        color: authVm.ruleStatusText.contains("Thành công") ? AppStyles.successColor : AppStyles.errorColor,
-                                        fontWeight: FontWeight.w600,
+                            // Status text container
+                            if (authVm.ruleStatusText.isNotEmpty) ...[
+                              Container(
+                                padding: const EdgeInsets.all(10.0),
+                                decoration: AppStyles.glassDecoration(
+                                  borderColor: authVm.ruleStatusText.contains("Thành công")
+                                      ? AppStyles.successColor.withValues(alpha: 0.5)
+                                      : AppStyles.errorColor.withValues(alpha: 0.5),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      authVm.ruleStatusText.contains("Thành công") ? Icons.check : Icons.warning_amber_outlined,
+                                      color: authVm.ruleStatusText.contains("Thành công") ? AppStyles.successColor : AppStyles.errorColor,
+                                      size: 18.0,
+                                    ),
+                                    const SizedBox(width: 8.0),
+                                    Expanded(
+                                      child: Text(
+                                        authVm.ruleStatusText,
+                                        style: AppStyles.bodyMedium.copyWith(
+                                          color: authVm.ruleStatusText.contains("Thành công") ? AppStyles.successColor : AppStyles.errorColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 16.0),
-                          ],
+                              const SizedBox(height: 12.0),
+                            ],
 
-                          // Manual CCCD Input
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  decoration: AppStyles.glassDecoration(radius: 12.0),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                  child: TextField(
-                                    controller: _manualInputController,
-                                    style: AppStyles.bodyLarge,
-                                    decoration: const InputDecoration(
-                                      hintText: "Nhập số CCCD thủ công",
-                                      hintStyle: AppStyles.caption,
-                                      border: InputBorder.none,
+                            // Manual CCCD Input
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    decoration: AppStyles.glassDecoration(radius: 12.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                    child: TextField(
+                                      controller: _manualInputController,
+                                      style: AppStyles.bodyLarge,
+                                      decoration: const InputDecoration(
+                                        hintText: "Nhập số CCCD thủ công",
+                                        hintStyle: AppStyles.caption,
+                                        border: InputBorder.none,
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      onSubmitted: (val) {
+                                        if (val.trim().isNotEmpty) {
+                                          authVm.handleManualInput(val.trim());
+                                          _manualInputController.clear();
+                                        }
+                                      },
                                     ),
-                                    keyboardType: TextInputType.number,
-                                    onSubmitted: (val) {
+                                  ),
+                                ),
+                                const SizedBox(width: 12.0),
+                                SizedBox(
+                                  height: 45.0,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      final val = _manualInputController.text;
                                       if (val.trim().isNotEmpty) {
                                         authVm.handleManualInput(val.trim());
                                         _manualInputController.clear();
                                       }
                                     },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppStyles.primaryAccent,
+                                      foregroundColor: AppStyles.backgroundEnd,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                      elevation: 0.0,
+                                    ),
+                                    child: const Icon(Icons.send),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 12.0),
-                              SizedBox(
-                                height: 50.0,
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    final val = _manualInputController.text;
-                                    if (val.trim().isNotEmpty) {
-                                      authVm.handleManualInput(val.trim());
-                                      _manualInputController.clear();
-                                    }
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppStyles.primaryAccent,
-                                    foregroundColor: AppStyles.backgroundEnd,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                    elevation: 0.0,
-                                  ),
-                                  child: const Icon(Icons.send),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -306,105 +334,108 @@ class _AuthViewState extends State<AuthView> {
                   child: Center(
                     child: Container(
                       width: 550.0,
-                      padding: const EdgeInsets.all(28.0),
+                      padding: const EdgeInsets.all(20.0),
                       decoration: AppStyles.glassDecoration(borderColor: AppStyles.primaryAccent),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.tune, color: AppStyles.primaryAccent, size: 28.0),
-                              SizedBox(width: 12.0),
-                              Text("THIẾT LẬP HẠN MỨC CA PHÊ DUYỆT", style: AppStyles.titleLarge),
-                            ],
-                          ),
-                          const SizedBox(height: 8.0),
-                          const Text(
-                            "Thiết lập khoảng giới hạn tiền được duyệt cho ca này.",
-                            style: AppStyles.bodyMedium,
-                          ),
-                          const SizedBox(height: 24.0),
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.tune, color: AppStyles.primaryAccent, size: 24.0),
+                                SizedBox(width: 12.0),
+                                Text("THIẾT LẬP HẠN MỨC CA PHÊ DUYỆT", style: AppStyles.bodyLarge),
+                              ],
+                            ),
+                            const SizedBox(height: 6.0),
+                            const Text(
+                              "Thiết lập khoảng giới hạn tiền được duyệt cho ca này.",
+                              style: AppStyles.caption,
+                            ),
+                            const SizedBox(height: 16.0),
 
-                          // Min Slider
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("Hạn mức Tối thiểu (Min):", style: AppStyles.bodyMedium),
-                              Text(
-                                "\${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
-                                style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                            // Min Slider
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text("Hạn mức Tối thiểu (Min):", style: AppStyles.bodyMedium),
+                                Text(
+                                  "${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
+                                  style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                                ),
+                              ],
+                            ),
+                            SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: AppStyles.primaryAccent,
+                                inactiveTrackColor: AppStyles.glassCardBorder,
+                                thumbColor: AppStyles.primaryAccent,
+                                overlayColor: AppStyles.primaryAccent.withAlpha(32),
                               ),
-                            ],
-                          ),
-                          SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              activeTrackColor: AppStyles.primaryAccent,
-                              inactiveTrackColor: AppStyles.glassCardBorder,
-                              thumbColor: AppStyles.primaryAccent,
-                              overlayColor: AppStyles.primaryAccent.withAlpha(32),
+                              child: Slider(
+                                value: authVm.caseOperatorMin,
+                                min: 0.0,
+                                max: authVm.maxTransactionAmount,
+                                divisions: 20,
+                                onChanged: (val) {
+                                  authVm.caseOperatorMin = val;
+                                },
+                              ),
                             ),
-                            child: Slider(
-                              value: authVm.caseOperatorMin,
-                              min: 0.0,
-                              max: authVm.maxTransactionAmount,
-                              divisions: 20,
-                              onChanged: (val) {
-                                authVm.caseOperatorMin = val;
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 16.0),
+                            const SizedBox(height: 8.0),
 
-                          // Max Slider
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("Hạn mức Tối đa (Max):", style: AppStyles.bodyMedium),
-                              Text(
-                                "\${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
-                                style: AppStyles.bodyLarge.copyWith(color: AppStyles.secondaryAccent),
+                            // Max Slider
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text("Hạn mức Tối đa (Max):", style: AppStyles.bodyMedium),
+                                Text(
+                                  "${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
+                                  style: AppStyles.bodyLarge.copyWith(color: AppStyles.secondaryAccent),
+                                ),
+                              ],
+                            ),
+                            SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: AppStyles.secondaryAccent,
+                                inactiveTrackColor: AppStyles.glassCardBorder,
+                                thumbColor: AppStyles.secondaryAccent,
+                                overlayColor: AppStyles.secondaryAccent.withAlpha(32),
                               ),
-                            ],
-                          ),
-                          SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              activeTrackColor: AppStyles.secondaryAccent,
-                              inactiveTrackColor: AppStyles.glassCardBorder,
-                              thumbColor: AppStyles.secondaryAccent,
-                              overlayColor: AppStyles.secondaryAccent.withAlpha(32),
+                              child: Slider(
+                                value: authVm.caseOperatorMax,
+                                min: 0.0,
+                                max: authVm.maxTransactionAmount,
+                                divisions: 20,
+                                onChanged: (val) {
+                                  authVm.caseOperatorMax = val;
+                                },
+                              ),
                             ),
-                            child: Slider(
-                              value: authVm.caseOperatorMax,
-                              min: 0.0,
-                              max: authVm.maxTransactionAmount,
-                              divisions: 20,
-                              onChanged: (val) {
-                                authVm.caseOperatorMax = val;
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 28.0),
+                            const SizedBox(height: 20.0),
 
-                          // Action confirm
-                          SizedBox(
-                            height: 50.0,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                authVm.confirmRangeAsync(() {
-                                  mainVm.navigateTo(AppStage.conversation);
-                                });
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppStyles.successColor,
-                                foregroundColor: AppStyles.backgroundEnd,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                elevation: 0.0,
+                            // Action confirm
+                            SizedBox(
+                              height: 48.0,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  authVm.confirmRangeAsync(() {
+                                    mainVm.navigateTo(AppStage.conversation);
+                                  });
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppStyles.successColor,
+                                  foregroundColor: AppStyles.backgroundEnd,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                  elevation: 0.0,
+                                ),
+                                child: const Text("XÁC NHẬN VÀ BẮT ĐẦU PHỎNG VẤN", style: AppStyles.bodyLarge),
                               ),
-                              child: const Text("XÁC NHẬN VÀ BẮT ĐẦU PHỎNG VẤN", style: AppStyles.bodyLarge),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

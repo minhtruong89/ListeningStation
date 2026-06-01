@@ -69,13 +69,13 @@ class ResultView extends StatelessWidget {
                       Expanded(
                         flex: 5,
                         child: Container(
-                          padding: const EdgeInsets.all(20.0),
+                          padding: const EdgeInsets.fromLTRB(20.0, 10.0, 20.0, 20.0),
                           decoration: AppStyles.glassDecoration(),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text("BÁO CÁO PHÂN TÍCH DISTRESS SCORE AI", style: AppStyles.bodyLarge),
-                              const SizedBox(height: 12.0),
+                              const SizedBox(height: 8.0),
                               Expanded(
                                 child: Container(
                                   padding: const EdgeInsets.all(16.0),
@@ -121,81 +121,111 @@ class ResultView extends StatelessWidget {
                                     ],
                                   ),
                                 )
-                              : SingleChildScrollView(
-                                  physics: const BouncingScrollPhysics(),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      const SizedBox(height: 12.0),
-                                      const Icon(Icons.verified, color: AppStyles.successColor, size: 56.0),
-                                      const SizedBox(height: 12.0),
-                                      const Text(
-                                        "SỐ TIỀN PHÊ DUYỆT CHỈ ĐỊNH",
-                                        style: AppStyles.bodyLarge,
-                                      ),
-                                      const SizedBox(height: 16.0),
-  
-                                      // Big Glowing Approved Amount Box
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                              : Stack(
+                                  children: [
+                                    // Top-left Distress Score Info
+                                    Positioned(
+                                      top: 0,
+                                      left: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
                                         decoration: BoxDecoration(
-                                          color: AppStyles.successColor.withValues(alpha: 0.12),
-                                          borderRadius: BorderRadius.circular(16.0),
-                                          border: Border.all(color: AppStyles.successColor, width: 1.5),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: AppStyles.successColor.withValues(alpha: 0.2),
-                                              blurRadius: 16.0,
-                                              spreadRadius: 2.0,
-                                            )
+                                          color: AppStyles.primaryAccent.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(6.0),
+                                          border: Border.all(color: AppStyles.primaryAccent.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Text(
+                                          "Distress Score: ${resultVm.score.toStringAsFixed(0)}%",
+                                          style: const TextStyle(
+                                            color: AppStyles.primaryAccent,
+                                            fontSize: 12.0,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'monospace',
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    
+                                    // Main content
+                                    Positioned.fill(
+                                      child: SingleChildScrollView(
+                                        physics: const BouncingScrollPhysics(),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            const SizedBox(height: 40.0), // Spacer for top-left distress badge
+                                            const Icon(Icons.verified, color: AppStyles.successColor, size: 56.0),
+                                            const SizedBox(height: 6.0),
+                                            const Text(
+                                              "SỐ TIỀN PHÊ DUYỆT CHỈ ĐỊNH",
+                                              style: AppStyles.bodyLarge,
+                                            ),
+                                            const SizedBox(height: 16.0),
+  
+                                            // Big Glowing Approved Amount Box
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                                              decoration: BoxDecoration(
+                                                color: AppStyles.successColor.withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(16.0),
+                                                border: Border.all(color: AppStyles.successColor, width: 1.5),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: AppStyles.successColor.withValues(alpha: 0.2),
+                                                    blurRadius: 16.0,
+                                                    spreadRadius: 2.0,
+                                                  )
+                                                ],
+                                              ),
+                                              child: Text(
+                                                "${_formatCurrency(resultVm.decision?.approvedAmount ?? 0.0)} VNĐ",
+                                                style: AppStyles.titleHuge.copyWith(
+                                                  color: AppStyles.successColor,
+                                                  fontSize: 36.0,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 24.0),
+  
+                                            // Decision explanation details
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                              child: Text(
+                                                resultVm.decision?.explanation ?? "",
+                                                style: AppStyles.bodyMedium.copyWith(
+                                                  color: AppStyles.textSecondary,
+                                                  height: 1.5,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 24.0),
+  
+                                            // Restart button at bottom
+                                            SizedBox(
+                                              width: double.infinity,
+                                              height: 55.0,
+                                              child: ElevatedButton(
+                                                onPressed: () {
+                                                  authVm.resetVerification();
+                                                  converseVm.clearConversation();
+                                                  resultVm.reset();
+                                                  mainVm.resetApp();
+                                                },
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: AppStyles.successColor,
+                                                  foregroundColor: AppStyles.backgroundEnd,
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                                  elevation: 0.0,
+                                                ),
+                                                child: const Text("HOÀN TẤT VÀ KHỞI ĐỘNG LẠI CA MỚI", style: AppStyles.bodyLarge),
+                                              ),
+                                            ),
                                           ],
                                         ),
-                                        child: Text(
-                                          "${_formatCurrency(resultVm.decision?.approvedAmount ?? 0.0)} VNĐ",
-                                          style: AppStyles.titleHuge.copyWith(
-                                            color: AppStyles.successColor,
-                                            fontSize: 36.0,
-                                          ),
-                                        ),
                                       ),
-                                      const SizedBox(height: 24.0),
-  
-                                      // Decision explanation details
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                        child: Text(
-                                          resultVm.decision?.explanation ?? "",
-                                          style: AppStyles.bodyMedium.copyWith(
-                                            color: AppStyles.textSecondary,
-                                            height: 1.5,
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 24.0),
-  
-                                      // Restart button at bottom
-                                      SizedBox(
-                                        width: double.infinity,
-                                        height: 55.0,
-                                        child: ElevatedButton(
-                                          onPressed: () {
-                                            authVm.resetVerification();
-                                            converseVm.clearConversation();
-                                            resultVm.reset();
-                                            mainVm.resetApp();
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: AppStyles.successColor,
-                                            foregroundColor: AppStyles.backgroundEnd,
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                            elevation: 0.0,
-                                          ),
-                                          child: const Text("HOÀN TẤT VÀ KHỞI ĐỘNG LẠI CA MỚI", style: AppStyles.bodyLarge),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                         ),
                       ),

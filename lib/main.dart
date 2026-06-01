@@ -44,7 +44,7 @@ void main() async {
   await dataService.initializeAsync();
   
   // TODO TEST Call this to clear operator verifications at startup (uncomment to activate)
-  // await dataService.clearOperatorVerificationsAsync();
+  await dataService.clearOperatorVerificationsAsync();
   
   await llmService.initializeAsync();
 

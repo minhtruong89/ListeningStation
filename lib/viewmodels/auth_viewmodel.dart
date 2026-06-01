@@ -41,6 +41,7 @@ class AuthViewModel extends ChangeNotifier {
   
   double _caseOperatorMin = 0.0;
   double _caseOperatorMax = 2000000.0;
+  double _caseOperatorExact = 2000000.0;
   double _maxTransactionAmount = 2000000.0;
 
   final List<VerifiedOperatorDisplayItem> _verifiedOperatorsDisplay = [];
@@ -84,6 +85,14 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  double get caseOperatorExact => _caseOperatorExact;
+  set caseOperatorExact(double val) {
+    _caseOperatorExact = val;
+    notifyListeners();
+  }
+
+  bool get flagOperatorExact => _llmService.flagOperatorExact;
+
   double get maxTransactionAmount => _maxTransactionAmount;
   List<VerifiedOperatorDisplayItem> get verifiedOperatorsDisplay => _verifiedOperatorsDisplay;
   List<Operator> get verifiedOperators => _verifiedOperators;
@@ -102,7 +111,6 @@ class AuthViewModel extends ChangeNotifier {
     // Setup camera background tasks
     try {
       await _cameraService.initializeAsync();
-      await _cameraService.startAsync();
       await _speechService.speakAsync("Xin chào. Vui lòng xác nhận người bảo chứng");
     } catch (_) {
       await _speechService.speakAsync("Camera bị lỗi");
@@ -114,6 +122,7 @@ class AuthViewModel extends ChangeNotifier {
     _maxTransactionAmount = await _ruleEngineService.getMaxTransactionLimitAsync();
     _caseOperatorMax = _maxTransactionAmount;
     _caseOperatorMin = 0.0;
+    _caseOperatorExact = _maxTransactionAmount;
     notifyListeners();
   }
 
@@ -262,25 +271,38 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> confirmRangeAsync(VoidCallback onCompletion) async {
-    if (_caseOperatorMin > _caseOperatorMax) {
-      final temp = _caseOperatorMin;
-      _caseOperatorMin = _caseOperatorMax;
-      _caseOperatorMax = temp;
+    try {
+      if (_caseOperatorMin > _caseOperatorMax) {
+        final temp = _caseOperatorMin;
+        _caseOperatorMin = _caseOperatorMax;
+        _caseOperatorMax = temp;
+      }
+
+      // Record operator verifications in DB
+      for (var op in _verifiedOperators) {
+        try {
+          await _dataService.recordOperatorVerificationAsync(op.id);
+        } catch (dbEx) {
+          debugPrint("[AuthViewModel] DB Error recording verification: $dbEx");
+        }
+      }
+
+      _llmService.caseOperatorMin = _caseOperatorMin;
+      _llmService.caseOperatorMax = _caseOperatorMax;
+      _llmService.caseOperatorExact = _caseOperatorExact;
+
+      _isVerified = true;
+      _isRangePopupVisible = false;
+      notifyListeners();
+
+      try {
+        await _cameraService.stopAsync();
+      } catch (camEx) {
+        debugPrint("[AuthViewModel] Camera stop error: $camEx");
+      }
+    } catch (ex) {
+      debugPrint("[AuthViewModel] confirmRangeAsync general error: $ex");
     }
-
-    // Record operator verifications in DB
-    for (var op in _verifiedOperators) {
-      await _dataService.recordOperatorVerificationAsync(op.id);
-    }
-
-    _llmService.caseOperatorMin = _caseOperatorMin;
-    _llmService.caseOperatorMax = _caseOperatorMax;
-
-    _isVerified = true;
-    _isRangePopupVisible = false;
-    notifyListeners();
-
-    await _cameraService.stopAsync();
 
     // Trigger state coordinator navigation
     onCompletion();

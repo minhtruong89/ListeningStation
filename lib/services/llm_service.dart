@@ -28,6 +28,12 @@ abstract class ILLMService {
   double get caseOperatorMax;
   set caseOperatorMax(double value);
 
+  double get caseOperatorExact;
+  set caseOperatorExact(double value);
+
+  bool get flagOperatorExact;
+  set flagOperatorExact(bool value);
+
   String get finalizeConfirmMessage;
   String get systemPrompt;
   set systemPrompt(String value);
@@ -51,6 +57,8 @@ class LLMService implements ILLMService {
   double _proposedAmount = 0.0;
   double _caseOperatorMin = 0.0;
   double _caseOperatorMax = 0.0;
+  double _caseOperatorExact = 2000000.0;
+  bool _flagOperatorExact = true;
 
   late String _dataDir;
 
@@ -79,6 +87,18 @@ class LLMService implements ILLMService {
 
   @override
   set caseOperatorMax(double value) => _caseOperatorMax = value;
+
+  @override
+  double get caseOperatorExact => _caseOperatorExact;
+
+  @override
+  set caseOperatorExact(double value) => _caseOperatorExact = value;
+
+  @override
+  bool get flagOperatorExact => _flagOperatorExact;
+
+  @override
+  set flagOperatorExact(bool value) => _flagOperatorExact = value;
 
   @override
   String get finalizeConfirmMessage => _finalizeConfirmMessage;

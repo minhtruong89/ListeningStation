@@ -356,64 +356,95 @@ class _AuthViewState extends State<AuthView> {
                             ),
                             const SizedBox(height: 16.0),
 
-                            // Min Slider
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text("Hạn mức Tối thiểu (Min):", style: AppStyles.bodyMedium),
-                                Text(
-                                  "${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
-                                  style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                            if (authVm.flagOperatorExact) ...[
+                              // Hạn mức Đề ra Slider
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Hạn mức Đề ra:", style: AppStyles.bodyMedium),
+                                  Text(
+                                    "${_formatCurrency(authVm.caseOperatorExact)} VNĐ",
+                                    style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                                  ),
+                                ],
+                              ),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: AppStyles.primaryAccent,
+                                  inactiveTrackColor: AppStyles.glassCardBorder,
+                                  thumbColor: AppStyles.primaryAccent,
+                                  overlayColor: AppStyles.primaryAccent.withAlpha(32),
                                 ),
-                              ],
-                            ),
-                            SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                activeTrackColor: AppStyles.primaryAccent,
-                                inactiveTrackColor: AppStyles.glassCardBorder,
-                                thumbColor: AppStyles.primaryAccent,
-                                overlayColor: AppStyles.primaryAccent.withAlpha(32),
+                                child: Slider(
+                                  value: authVm.caseOperatorExact,
+                                  min: 0.0,
+                                  max: authVm.maxTransactionAmount,
+                                  divisions: 20,
+                                  onChanged: (val) {
+                                    authVm.caseOperatorExact = val;
+                                  },
+                                ),
                               ),
-                              child: Slider(
-                                value: authVm.caseOperatorMin,
-                                min: 0.0,
-                                max: authVm.maxTransactionAmount,
-                                divisions: 20,
-                                onChanged: (val) {
-                                  authVm.caseOperatorMin = val;
-                                },
+                            ] else ...[
+                              // Min Slider
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Hạn mức Tối thiểu (Min):", style: AppStyles.bodyMedium),
+                                  Text(
+                                    "${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
+                                    style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 8.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: AppStyles.primaryAccent,
+                                  inactiveTrackColor: AppStyles.glassCardBorder,
+                                  thumbColor: AppStyles.primaryAccent,
+                                  overlayColor: AppStyles.primaryAccent.withAlpha(32),
+                                ),
+                                child: Slider(
+                                  value: authVm.caseOperatorMin,
+                                  min: 0.0,
+                                  max: authVm.maxTransactionAmount,
+                                  divisions: 20,
+                                  onChanged: (val) {
+                                    authVm.caseOperatorMin = val;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 8.0),
 
-                            // Max Slider
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text("Hạn mức Tối đa (Max):", style: AppStyles.bodyMedium),
-                                Text(
-                                  "${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
-                                  style: AppStyles.bodyLarge.copyWith(color: AppStyles.secondaryAccent),
+                              // Max Slider
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Hạn mức Tối đa (Max):", style: AppStyles.bodyMedium),
+                                  Text(
+                                    "${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
+                                    style: AppStyles.bodyLarge.copyWith(color: AppStyles.secondaryAccent),
+                                  ),
+                                ],
+                              ),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: AppStyles.secondaryAccent,
+                                  inactiveTrackColor: AppStyles.glassCardBorder,
+                                  thumbColor: AppStyles.secondaryAccent,
+                                  overlayColor: AppStyles.secondaryAccent.withAlpha(32),
                                 ),
-                              ],
-                            ),
-                            SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                activeTrackColor: AppStyles.secondaryAccent,
-                                inactiveTrackColor: AppStyles.glassCardBorder,
-                                thumbColor: AppStyles.secondaryAccent,
-                                overlayColor: AppStyles.secondaryAccent.withAlpha(32),
+                                child: Slider(
+                                  value: authVm.caseOperatorMax,
+                                  min: 0.0,
+                                  max: authVm.maxTransactionAmount,
+                                  divisions: 20,
+                                  onChanged: (val) {
+                                    authVm.caseOperatorMax = val;
+                                  },
+                                ),
                               ),
-                              child: Slider(
-                                value: authVm.caseOperatorMax,
-                                min: 0.0,
-                                max: authVm.maxTransactionAmount,
-                                divisions: 20,
-                                onChanged: (val) {
-                                  authVm.caseOperatorMax = val;
-                                },
-                              ),
-                            ),
+                            ],
                             const SizedBox(height: 20.0),
 
                             // Action confirm

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/rule_engine_service.dart';
+import '../services/camera_service.dart';
 
 enum AppStage {
   splash,
@@ -10,12 +12,13 @@ enum AppStage {
 
 class MainViewModel extends ChangeNotifier {
   final IRuleEngineService _ruleEngine;
+  final ICameraService _cameraService;
   
   AppStage _currentStage = AppStage.splash;
   String _errorMessage = "";
   bool _isValidating = true;
 
-  MainViewModel(this._ruleEngine) {
+  MainViewModel(this._ruleEngine, this._cameraService) {
     runStartupChecks();
   }
 
@@ -28,8 +31,18 @@ class MainViewModel extends ChangeNotifier {
     _errorMessage = "";
     notifyListeners();
 
+    // 1. Request camera permission before checks
+    try {
+      final status = await Permission.camera.request();
+      debugPrint("[MainViewModel] Camera permission status: $status");
+      // Even if permission is denied, we re-initialize the camera service to try detecting.
+      await _cameraService.initializeAsync();
+    } catch (e) {
+      debugPrint("[MainViewModel] Error requesting camera permission: $e");
+    }
+
     // Visual pause for splash aesthetics
-    await Future.delayed(const Duration(seconds: 1500));
+    await Future.delayed(const Duration(milliseconds: 1500));
 
     final ruleResults = await _ruleEngine.evaluateSystemRulesAsync();
     bool allValid = true;

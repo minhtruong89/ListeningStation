@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart';
@@ -114,6 +115,7 @@ class LLMService implements ILLMService {
   Future<void> _syncFileAsync(String remoteUrl, String localFileName) async {
     final localPath = join(_dataDir, localFileName);
     final localFile = File(localPath);
+    debugPrint("\n[LLMService] Syncing: $localFileName to $localPath");
     try {
       final headResponse = await _httpClient.head(Uri.parse(remoteUrl)).timeout(const Duration(seconds: 5));
       int remoteSize = -1;
@@ -126,18 +128,22 @@ class LLMService implements ILLMService {
         final localSize = await localFile.length();
         if (remoteSize != -1 && remoteSize == localSize) {
           shouldDownload = false;
+          debugPrint("[LLMService] $localFileName is up-to-date (size: $localSize). Skipping download.");
         }
       }
 
       if (shouldDownload) {
+        debugPrint("[LLMService] Downloading $localFileName from $remoteUrl...");
         final getResponse = await _httpClient.get(Uri.parse(remoteUrl)).timeout(const Duration(seconds: 10));
         if (getResponse.statusCode == 200) {
           await localFile.writeAsBytes(getResponse.bodyBytes);
-          debugPrint("Synced LLM file: \$localFileName");
+          debugPrint("[LLMService] Synced and saved file successfully: $localFileName");
+        } else {
+          debugPrint("[LLMService] Failed to download $localFileName. HTTP status: ${getResponse.statusCode}");
         }
       }
     } catch (ex) {
-      debugPrint("Error syncing LLM config file \$localFileName: \$ex");
+      debugPrint("[LLMService] Error syncing LLM config file $localFileName: $ex");
     }
   }
 
@@ -149,12 +155,23 @@ class LLMService implements ILLMService {
 
       // 1. Load API Key
       final keyFile = getSafeFile("openAI_key.json");
+      debugPrint("[LLMService] Loading API key from path: ${keyFile.path}");
       if (keyFile.existsSync()) {
         final jsonStr = keyFile.readAsStringSync();
+        debugPrint("[LLMService] openAI_key.json content length: ${jsonStr.length} bytes");
         final doc = jsonDecode(jsonStr);
         if (doc is Map && doc.containsKey('OpenAI')) {
           _apiKey = doc['OpenAI']['ApiKey']?.toString();
+          if (_apiKey != null && _apiKey!.isNotEmpty) {
+            //debugPrint("[LLMService] API Key loaded successfully. Prefix: ${_apiKey!.substring(0, min(10, _apiKey!.length))}...");
+          } else {
+            debugPrint("[LLMService] Warning: API Key value is empty in JSON");
+          }
+        } else {
+          debugPrint("[LLMService] Warning: JSON does not contain 'OpenAI' map key");
         }
+      } else {
+        debugPrint("[LLMService] Warning: openAI_key.json does not exist locally");
       }
 
       // 2. Load Conversation Prompt
@@ -188,7 +205,14 @@ class LLMService implements ILLMService {
 
   @override
   Future<bool> pingAsync() async {
-    if (_apiKey == null || _apiKey!.isEmpty) return false;
+    //debugPrint("[LLMService] pingAsync triggered. Current apiKey length: ${_apiKey?.length ?? 0} characters.");
+    if (_apiKey == null || _apiKey!.isEmpty) {
+      debugPrint("[LLMService] pingAsync failed: apiKey is null or empty");
+      return false;
+    }
+    
+    //debugPrint("[LLMService] pingAsync using full apiKey: $_apiKey");
+
     try {
       final requestBody = {
         "model": "gpt-4o",
@@ -201,14 +225,19 @@ class LLMService implements ILLMService {
       final response = await _httpClient.post(
         Uri.parse(_baseUrl),
         headers: {
-          "Authorization": "Bearer \$_apiKey",
+          "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
         },
         body: jsonEncode(requestBody),
       ).timeout(const Duration(seconds: 5));
 
+      //debugPrint("[LLMService] pingAsync Response status code: ${response.statusCode}");
+      if (response.statusCode != 200) {
+        debugPrint("[LLMService] pingAsync Response body: ${response.body}");
+      }
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (ex) {
+      debugPrint("[LLMService] pingAsync connection error exception: $ex");
       return false;
     }
   }

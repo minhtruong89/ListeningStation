@@ -59,7 +59,7 @@ void main() async {
 
         // ViewModels Registration
         ChangeNotifierProvider<MainViewModel>(
-          create: (_) => MainViewModel(ruleEngineService),
+          create: (_) => MainViewModel(ruleEngineService, cameraService),
         ),
         ChangeNotifierProvider<AuthViewModel>(
           create: (_) => AuthViewModel(

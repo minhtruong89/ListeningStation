@@ -1,0 +1,214 @@
+{
+  "hospital_id": "BV001",
+  "rule_version": "1.1",
+  "last_update": "2026-04-27",
+
+  "system_rules": [
+    {
+      "id": "SYS001",
+      "require_internet": true,
+      "message_vi": "Máy chưa kết nối Internet. Vui lòng kiểm tra mạng."
+    },
+    {
+      "id": "SYS002",
+      "require_ai_connection": true,
+      "message_vi": "Không kết nối được OpenAI API."
+    },
+    {
+      "id": "SYS003",
+      "camera_required": true,
+      "message_vi": "Camera không hoạt động."
+    },
+    {
+      "id": "SYS004",
+      "cash_available_required": true,
+      "message_vi": "Cassette không còn tiền."
+    },
+    {
+      "id": "SYS005",
+      "cassette_door_closed": true,
+      "message_vi": "Cửa cassette đang mở."
+    },
+    {
+      "id": "SYS006",
+      "database_required": true,
+      "message_vi": "Database không hoạt động."
+    },
+    {
+      "id": "SYS007",
+      "daily_budget_check": true,
+      "message_vi": "Đã vượt quá hạn mức chi trong ngày."
+    },
+    {
+      "id": "SYS008",
+      "hardware_error_allowed": false,
+      "message_vi": "Phát hiện lỗi phần cứng."
+    }
+  ],
+
+  "staff_verification_rules": [
+    {
+      "id": "STAFF001",
+      "staff_required": true,
+      "message_vi": "Cuộc hội thoại phải do nhân viên bệnh viện khởi động."
+    },
+    {
+      "id": "STAFF002",
+      "staff_list_validation": true,
+      "message_vi": "Nhân viên không có trong danh sách hợp lệ."
+    },
+    {
+      "id": "STAFF003",
+      "staff_card_scan_required": true,
+      "message_vi": "Chưa quét thẻ nhân viên."
+    },
+    {
+      "id": "STAFF004",
+      "staff_card_camera_verification": true,
+      "message_vi": "Camera không nhận dạng được thẻ nhân viên."
+    },
+    {
+      "id": "STAFF005",
+      "after_hours_staff_required": 2,
+      "message_vi": "Ngoài giờ hành chính cần ít nhất 2 nhân viên xác nhận."
+    },
+    {
+      "id": "STAFF006",
+      "ctxh_staff_required": 1,
+      "message_vi": "Trong giờ hành chính cần 1 nhân viên CTXH xác nhận."
+    },
+    {
+      "id": "STAFF007",
+      "sms_verification_enabled": true,
+      "message_vi": "Xác minh SMS chưa hoàn tất."
+    },
+    {
+      "id": "STAFF008",
+      "staff_daily_case_limit": 5,
+      "message_vi": "Nhân viên đã vượt quá số ca trong ngày."
+    }
+  ],
+
+  "document_verification_rules": [
+    {
+      "id": "DOC001",
+      "identity_document_required": true,
+      "message_vi": "Thiếu CCCD hoặc giấy tờ tùy thân."
+    },
+    {
+      "id": "DOC002",
+      "medical_document_required": true,
+      "message_vi": "Thiếu đơn thuốc hoặc chỉ định."
+    },
+    {
+      "id": "DOC003",
+      "ticket_required_for_travel_support": true,
+      "message_vi": "Thiếu vé xe khi yêu cầu hỗ trợ chi phí di chuyển."
+    },
+    {
+      "id": "DOC004",
+      "child_medical_proof_required": true,
+      "message_vi": "Thiếu giấy khám trẻ khi xin tiền sữa."
+    },
+    {
+      "id": "DOC005",
+      "ocr_readable_required": true,
+      "message_vi": "Không đọc được nội dung từ ảnh (OCR lỗi)."
+    },
+    {
+      "id": "DOC006",
+      "duplicate_document_not_allowed": true,
+      "message_vi": "Phát hiện chứng từ đã được sử dụng trước đó."
+    },
+    {
+      "id": "DOC007",
+      "image_quality_required": "high",
+      "message_vi": "Ảnh chụp không rõ nét."
+    },
+    {
+      "id": "DOC008",
+      "identity_match_required": true,
+      "message_vi": "Thông tin bệnh nhân không khớp với giấy tờ."
+    }
+  ],
+
+  "financial_limits": {
+    "max_per_transaction": 2000000,
+    "message_vi": "Số tiền yêu cầu vượt quá mức cho phép mỗi ca.",
+    "expense_limits": {
+      "medicine": {
+        "limit": 500000,
+        "message_vi": "Chi phí thuốc vượt quá 500.000đ."
+      },
+      "travel": {
+        "limit": 300000,
+        "message_vi": "Chi phí vé xe vượt quá 300.000đ."
+      },
+      "baby_milk": {
+        "limit": 400000,
+        "message_vi": "Chi phí sữa trẻ em vượt quá 400.000đ."
+      },
+      "medical_test": {
+        "limit": 1000000,
+        "message_vi": "Chi phí xét nghiệm vượt quá 1.000.000đ."
+      }
+    },
+    "budget_limits": {
+      "daily_limit": {
+        "value": 10000000,
+        "message_vi": "Đã vượt hạn mức chi trong ngày."
+      },
+      "weekly_limit": {
+        "value": 50000000,
+        "message_vi": "Đã vượt hạn mức chi trong tuần."
+      },
+      "monthly_limit": {
+        "value": 200000000,
+        "message_vi": "Đã vượt hạn mức chi trong tháng."
+      }
+    }
+  ],
+
+  "anti_fraud_rules": [
+    {
+      "id": "FRAUD001",
+      "per_person_daily_limit": 1,
+      "message_vi": "Một người không được nhận hỗ trợ quá 1 lần/ngày."
+    },
+    {
+      "id": "FRAUD002",
+      "per_person_weekly_limit": 2,
+      "message_vi": "Một người không được nhận hỗ trợ quá 2 lần/tuần."
+    },
+    {
+      "id": "FRAUD003",
+      "per_person_monthly_limit": 3,
+      "message_vi": "Một người không được nhận hỗ trợ quá 3 lần/tháng."
+    },
+    {
+      "id": "FRAUD004",
+      "staff_daily_case_limit": 5,
+      "message_vi": "Nhân viên đã vượt quá 5 ca trong ngày."
+    },
+    {
+      "id": "FRAUD005",
+      "hospital_daily_case_limit": 20,
+      "message_vi": "Bệnh viện đã vượt quá 20 ca trong ngày."
+    },
+    {
+      "id": "FRAUD006",
+      "duplicate_identity_not_allowed": true,
+      "message_vi": "CCCD đã được sử dụng trước đó."
+    },
+    {
+      "id": "FRAUD007",
+      "minimum_minutes_between_cases": 30,
+      "message_vi": "Chưa đủ thời gian tối thiểu giữa 2 lần hỗ trợ."
+    },
+    {
+      "id": "FRAUD008",
+      "max_allowed_risk_score": 0.7,
+      "message_vi": "Rủi ro cao, hồ sơ bị từ chối."
+    }
+  ]
+}

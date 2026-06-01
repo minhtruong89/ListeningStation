@@ -1,0 +1,106 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'services/data_service.dart';
+import 'services/auth_service.dart';
+import 'services/camera_service.dart';
+import 'services/ocr_service.dart';
+import 'services/qr_service.dart';
+import 'services/llm_service.dart';
+import 'services/rule_engine_service.dart';
+import 'services/speech_service.dart';
+import 'viewmodels/main_viewmodel.dart';
+import 'viewmodels/auth_viewmodel.dart';
+import 'viewmodels/conversation_viewmodel.dart';
+import 'viewmodels/result_viewmodel.dart';
+import 'views/main_view.dart';
+
+void main() async {
+  // Ensure native bindings are fully up
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Force Landscape Orientation for premium table/tablet layout experience
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+
+  // Create singletons of core services
+  final dataService = DataService();
+  final cameraService = CameraService();
+  final ocrService = OCRService();
+  final qrService = QRService();
+  final speechService = SpeechService();
+  final authService = AuthService(dataService);
+  final llmService = LLMService();
+  final ruleEngineService = RuleEngineService(
+    llmService,
+    cameraService,
+    dataService,
+    authService,
+  );
+
+  // Initialize async assets and local databases sequentially
+  await dataService.initializeAsync();
+  await llmService.initializeAsync();
+
+  runApp(
+    MultiProvider(
+      providers: [
+        // Services Registration
+        Provider<IDataService>.value(value: dataService),
+        Provider<ICameraService>.value(value: cameraService),
+        Provider<IOCRService>.value(value: ocrService),
+        Provider<IQRService>.value(value: qrService),
+        Provider<ISpeechService>.value(value: speechService),
+        Provider<IAuthService>.value(value: authService),
+        Provider<ILLMService>.value(value: llmService),
+        Provider<IRuleEngineService>.value(value: ruleEngineService),
+
+        // ViewModels Registration
+        ChangeNotifierProvider<MainViewModel>(
+          create: (_) => MainViewModel(ruleEngineService),
+        ),
+        ChangeNotifierProvider<AuthViewModel>(
+          create: (_) => AuthViewModel(
+            cameraService,
+            ocrService,
+            qrService,
+            authService,
+            ruleEngineService,
+            dataService,
+            llmService,
+            speechService,
+          ),
+        ),
+        ChangeNotifierProvider<ConversationViewModel>(
+          create: (_) => ConversationViewModel(llmService, speechService),
+        ),
+        ChangeNotifierProvider<ResultViewModel>(
+          create: (_) => ResultViewModel(ruleEngineService, llmService),
+        ),
+      ],
+      child: const ListeningStationApp(),
+    ),
+  );
+}
+
+class ListeningStationApp extends StatelessWidget {
+  const ListeningStationApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Listening Station',
+      debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.dark,
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        primaryColor: const Color(0xFF38BDF8),
+        scaffoldBackgroundColor: const Color(0xFF020617),
+        fontFamily: 'Roboto', // Modern standard clean typeface
+      ),
+      home: const MainView(),
+    );
+  }
+}

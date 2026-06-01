@@ -201,115 +201,118 @@ class _ConversationViewState extends State<ConversationView> {
                     // RIGHT COLUMN: Active operation controls
                     Expanded(
                       flex: 4,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Header title
-                          const Row(
-                            children: [
-                              Icon(Icons.assistant, color: AppStyles.primaryAccent, size: 28.0),
-                              SizedBox(width: 8.0),
-                              Text("BÀN ĐIỀU KHIỂN HỖ TRỢ", style: AppStyles.titleLarge),
-                            ],
-                          ),
-                          const SizedBox(height: 16.0),
-
-                          // Current system state indicator
-                          Container(
-                            padding: const EdgeInsets.all(16.0),
-                            decoration: AppStyles.glassDecoration(),
-                            child: Row(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Header title
+                            const Row(
                               children: [
-                                Container(
-                                  width: 12.0,
-                                  height: 12.0,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
-                                  ),
-                                ),
-                                const SizedBox(width: 12.0),
-                                Expanded(
-                                  child: Text(
-                                    vm.isProcessing ? "Đang xử lý phản hồi AI..." : "Trợ lý giọng nói trực tiếp hoạt động",
-                                    style: AppStyles.bodyLarge.copyWith(
+                                Icon(Icons.assistant, color: AppStyles.primaryAccent, size: 28.0),
+                                SizedBox(width: 8.0),
+                                Text("BÀN ĐIỀU KHIỂN HỖ TRỢ", style: AppStyles.titleLarge),
+                              ],
+                            ),
+                            const SizedBox(height: 16.0),
+  
+                            // Current system state indicator
+                            Container(
+                              padding: const EdgeInsets.all(16.0),
+                              decoration: AppStyles.glassDecoration(),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 12.0,
+                                    height: 12.0,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
                                       color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
                                     ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 12.0),
+                                  Expanded(
+                                    child: Text(
+                                      vm.isProcessing ? "Đang xử lý phản hồi AI..." : "Trợ lý giọng nói trực tiếp hoạt động",
+                                      style: AppStyles.bodyLarge.copyWith(
+                                        color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 24.0),
-
-                          // Mute Speech button
-                          ElevatedButton.icon(
-                            onPressed: () => vm.toggleMute(),
-                            icon: Icon(vm.isMuted ? Icons.volume_off : Icons.volume_up, size: 24.0),
-                            label: Text(vm.isMuted ? "BẬT ÂM TRỢ LÝ GIỌNG NÓI" : "TẮT ÂM TRỢ LÝ GIỌNG NÓI"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: vm.isMuted ? AppStyles.warningColor : AppStyles.primaryAccent,
-                              foregroundColor: AppStyles.backgroundEnd,
-                              padding: const EdgeInsets.symmetric(vertical: 16.0),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                              textStyle: AppStyles.bodyLarge,
-                              elevation: 0.0,
-                            ),
-                          ),
-                          const SizedBox(height: 16.0),
-
-                          // Run Demo script button
-                          ElevatedButton.icon(
-                            onPressed: () => vm.runDemoModeAsync(),
-                            icon: const Icon(Icons.slideshow, size: 24.0),
-                            label: const Text("CHẠY KỊCH BẢN DEMO"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppStyles.glassCardBg,
-                              foregroundColor: AppStyles.textPrimary,
-                              surfaceTintColor: Colors.transparent,
-                              side: const BorderSide(color: AppStyles.glassCardBorder),
-                              padding: const EdgeInsets.symmetric(vertical: 16.0),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                              textStyle: AppStyles.bodyLarge,
-                              elevation: 0.0,
-                            ),
-                          ),
-                          const SizedBox(height: 16.0),
-
-                          // Show Summary button
-                          ElevatedButton.icon(
-                            onPressed: () => vm.showSummaryAsync(),
-                            icon: const Icon(Icons.summarize, size: 24.0),
-                            label: const Text("TÓM TẮT HỒ SƠ AI"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppStyles.glassCardBg,
-                              foregroundColor: AppStyles.textPrimary,
-                              surfaceTintColor: Colors.transparent,
-                              side: const BorderSide(color: AppStyles.glassCardBorder),
-                              padding: const EdgeInsets.symmetric(vertical: 16.0),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                              textStyle: AppStyles.bodyLarge,
-                              elevation: 0.0,
-                            ),
-                          ),
-                          const Spacer(),
-
-                          // Stop / Finalize Button
-                          SizedBox(
-                            height: 60.0,
-                            child: ElevatedButton(
-                              onPressed: () => vm.showFinalizeAsync(),
+                            const SizedBox(height: 24.0),
+  
+                            // Mute Speech button
+                            ElevatedButton.icon(
+                              onPressed: () => vm.toggleMute(),
+                              icon: Icon(vm.isMuted ? Icons.volume_off : Icons.volume_up, size: 24.0),
+                              label: Text(vm.isMuted ? "BẬT ÂM TRỢ LÝ GIỌNG NÓI" : "TẮT ÂM TRỢ LÝ GIỌNG NÓI"),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AppStyles.errorColor,
-                                foregroundColor: AppStyles.textPrimary,
+                                backgroundColor: vm.isMuted ? AppStyles.warningColor : AppStyles.primaryAccent,
+                                foregroundColor: AppStyles.backgroundEnd,
+                                padding: const EdgeInsets.symmetric(vertical: 16.0),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                textStyle: AppStyles.bodyLarge.copyWith(fontWeight: FontWeight.bold),
+                                textStyle: AppStyles.bodyLarge,
                                 elevation: 0.0,
                               ),
-                              child: const Text("KẾT THÚC HỘI THOẠI & PHÊ DUYỆT"),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 16.0),
+  
+                            // Run Demo script button
+                            ElevatedButton.icon(
+                              onPressed: () => vm.runDemoModeAsync(),
+                              icon: const Icon(Icons.slideshow, size: 24.0),
+                              label: const Text("CHẠY KỊCH BẢN DEMO"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppStyles.glassCardBg,
+                                foregroundColor: AppStyles.textPrimary,
+                                surfaceTintColor: Colors.transparent,
+                                side: const BorderSide(color: AppStyles.glassCardBorder),
+                                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                textStyle: AppStyles.bodyLarge,
+                                elevation: 0.0,
+                              ),
+                            ),
+                            const SizedBox(height: 16.0),
+  
+                            // Show Summary button
+                            ElevatedButton.icon(
+                              onPressed: () => vm.showSummaryAsync(),
+                              icon: const Icon(Icons.summarize, size: 24.0),
+                              label: const Text("TÓM TẮT HỒ SƠ AI"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppStyles.glassCardBg,
+                                foregroundColor: AppStyles.textPrimary,
+                                surfaceTintColor: Colors.transparent,
+                                side: const BorderSide(color: AppStyles.glassCardBorder),
+                                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                textStyle: AppStyles.bodyLarge,
+                                elevation: 0.0,
+                              ),
+                            ),
+                            const SizedBox(height: 24.0),
+  
+                            // Stop / Finalize Button
+                            SizedBox(
+                              height: 60.0,
+                              child: ElevatedButton(
+                                onPressed: () => vm.showFinalizeAsync(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppStyles.errorColor,
+                                  foregroundColor: AppStyles.textPrimary,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                  textStyle: AppStyles.bodyLarge.copyWith(fontWeight: FontWeight.bold),
+                                  elevation: 0.0,
+                                ),
+                                child: const Text("KẾT THÚC HỘI THOẠI & PHÊ DUYỆT"),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],

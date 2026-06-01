@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
+import 'package:image/image.dart' as img;
+import '../services/camera_service.dart';
 import '../utils/styles.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/main_viewmodel.dart';
@@ -15,16 +20,318 @@ class AuthView extends StatefulWidget {
 
 class _AuthViewState extends State<AuthView> {
   final TextEditingController _manualInputController = TextEditingController();
-  final MobileScannerController _scannerController = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-    returnImage: true,
-  );
+  MobileScannerController? _scannerController;
+  bool _isDisposed = false;
+  bool _hasAttemptedFallback = false;
+  bool _hasAttemptedNoImageFallback = false;
+
+  // Fallback Camera state variables
+  late final ICameraService _cameraService;
+  bool _useCameraPackageFallback = false;
+  bool _isCapturingFallback = false;
+  Timer? _fallbackScanTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _cameraService = context.read<ICameraService>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final authVm = context.read<AuthViewModel>();
+      _initAndStartScanner(
+        authVm.useFrontCamera ? CameraFacing.front : CameraFacing.back,
+        returnImage: true,
+      );
+    });
+  }
+
+  Future<void> _initAndStartScanner(CameraFacing facingToUse, {bool returnImage = true}) async {
+    if (_isDisposed) return;
+
+    debugPrint("[AuthView] Initializing MobileScannerController (facing: $facingToUse, returnImage: $returnImage)");
+    final controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: facingToUse,
+      cameraResolution: const Size(1280, 720), // Request 720p HD resolution for external USB webcams
+      returnImage: returnImage,
+      autoStart: false,
+    );
+
+    try {
+      await controller.start();
+      debugPrint("[AuthView] MobileScannerController started successfully!");
+      if (!_isDisposed) {
+        setState(() {
+          _scannerController = controller;
+        });
+      }
+    } catch (e) {
+      debugPrint("[AuthView] Failed to start MobileScannerController (facing: $facingToUse, returnImage: $returnImage): $e");
+      await controller.dispose();
+      
+      if (!_isDisposed) {
+        if (!_hasAttemptedFallback) {
+          _hasAttemptedFallback = true;
+          final fallbackFacing = (facingToUse == CameraFacing.back) 
+              ? CameraFacing.front 
+              : CameraFacing.back;
+          debugPrint("[AuthView] Retrying with fallback facing: $fallbackFacing");
+          await _initAndStartScanner(fallbackFacing, returnImage: returnImage);
+        } else if (!_hasAttemptedNoImageFallback && returnImage) {
+          _hasAttemptedNoImageFallback = true;
+          _hasAttemptedFallback = false; // Reset facing fallback for no-image attempt
+          if (!mounted) return;
+          final authVm = context.read<AuthViewModel>();
+          await _initAndStartScanner(
+            authVm.useFrontCamera ? CameraFacing.front : CameraFacing.back,
+            returnImage: false,
+          );
+        } else if (!_useCameraPackageFallback) {
+          _triggerCameraPackageFallback();
+        }
+      }
+    }
+  }
+
+  void _triggerCameraPackageFallback() {
+    if (_useCameraPackageFallback || _isDisposed) return;
+    debugPrint("[AuthView] All MobileScanner attempts failed. Falling back to camera package...");
+    _useCameraPackageFallback = true;
+    _fallbackScanTimer?.cancel();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_isDisposed) return;
+      if (_scannerController != null) {
+        await _scannerController!.dispose();
+        setState(() {
+          _scannerController = null;
+        });
+        // Give the OS driver some time to release the camera hardware lock completely
+        await Future.delayed(const Duration(milliseconds: 1000));
+      }
+      if (_isDisposed) return;
+      await _cameraService.startAsync();
+      if (mounted) {
+        setState(() {});
+      }
+      _startFallbackScanLoop();
+    });
+  }
+
+  void _startFallbackScanLoop() {
+    _fallbackScanTimer?.cancel();
+    _fallbackScanTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (_isDisposed || !_useCameraPackageFallback || _isCapturingFallback) return;
+      final authVm = context.read<AuthViewModel>();
+      if (authVm.isProcessing || authVm.isVerified) return;
+
+      await _triggerFallbackScan();
+    });
+  }
+
+  Future<CameraImage> _grabSingleFrame() async {
+    final completer = Completer<CameraImage>();
+    bool frameGrabbed = false;
+    
+    await _cameraService.controller!.startImageStream((image) {
+      if (!frameGrabbed) {
+        frameGrabbed = true;
+        completer.complete(image);
+        try {
+          _cameraService.controller!.stopImageStream();
+        } catch (e) {
+          debugPrint("[AuthView-Fallback] Error stopping image stream: $e");
+        }
+      }
+    });
+    
+    return completer.future;
+  }
+
+  img.Image _convertYUV420ToImage(CameraImage image) {
+    final int width = image.width;
+    final int height = image.height;
+
+    // Crop to the center 400x400 to keep it very fast and focus on the card/QR
+    final int cropWidth = 400;
+    final int cropHeight = 400;
+
+    final int centerX = width ~/ 2;
+    final int centerY = height ~/ 2;
+    final int xStart = (centerX - cropWidth ~/ 2).clamp(0, width);
+    final int yStart = (centerY - cropHeight ~/ 2).clamp(0, height);
+
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+
+    final yBytes = yPlane.bytes;
+    final uBytes = uPlane.bytes;
+    final vBytes = vPlane.bytes;
+
+    final int yRowStride = yPlane.bytesPerRow;
+    final int yPixelStride = yPlane.bytesPerPixel ?? 1;
+
+    final int uRowStride = uPlane.bytesPerRow;
+    final int uPixelStride = uPlane.bytesPerPixel ?? 2;
+
+    final int vRowStride = vPlane.bytesPerRow;
+    final int vPixelStride = vPlane.bytesPerPixel ?? 2;
+
+    final outImage = img.Image(width: cropWidth, height: cropHeight);
+
+    for (int y = 0; y < cropHeight; y++) {
+      for (int x = 0; x < cropWidth; x++) {
+        final int srcX = xStart + x;
+        final int srcY = yStart + y;
+
+        if (srcX >= width || srcY >= height) continue;
+
+        final int yIndex = srcY * yRowStride + srcX * yPixelStride;
+        final int uvX = srcX ~/ 2;
+        final int uvY = srcY ~/ 2;
+
+        final int uIndex = uvY * uRowStride + uvX * uPixelStride;
+        final int vIndex = uvY * vRowStride + uvX * vPixelStride;
+
+        if (yIndex >= yBytes.length || uIndex >= uBytes.length || vIndex >= vBytes.length) {
+          continue;
+        }
+
+        final int yVal = yBytes[yIndex];
+        final int uVal = uBytes[uIndex];
+        final int vVal = vBytes[vIndex];
+
+        final int r = (yVal + 1.370705 * (vVal - 128)).toInt().clamp(0, 255);
+        final int g = (yVal - 0.337633 * (uVal - 128) - 0.698001 * (vVal - 128)).toInt().clamp(0, 255);
+        final int b = (yVal + 1.732446 * (uVal - 128)).toInt().clamp(0, 255);
+
+        outImage.setPixelRgb(x, y, r, g, b);
+      }
+    }
+
+    return outImage;
+  }
+
+  Future<void> _triggerFallbackScan() async {
+    if (_cameraService.controller == null || !_cameraService.controller!.value.isInitialized) return;
+
+    final authVm = context.read<AuthViewModel>();
+
+    if (mounted) {
+      setState(() {
+        _isCapturingFallback = true;
+      });
+    }
+
+    String? tempFilePath;
+    try {
+      debugPrint("[AuthView-Fallback] Grabbing preview frame using image stream...");
+      final CameraImage image = await _grabSingleFrame();
+      debugPrint("[AuthView-Fallback] Successfully grabbed frame of size ${image.width}x${image.height}");
+
+      // Convert YUV420 to RGB img.Image
+      debugPrint("[AuthView-Fallback] Converting YUV420 frame to RGB...");
+      img.Image rgbImage = _convertYUV420ToImage(image);
+
+      // Rotate if needed (sensor orientation / upside down)
+      if (_shouldRotate180()) {
+        debugPrint("[AuthView-Fallback] Rotating frame by 180 degrees...");
+        rgbImage = img.copyRotate(rgbImage, angle: 180);
+      }
+
+      // Encode as JPEG
+      final jpegBytes = img.encodeJpg(rgbImage);
+      
+      // Save to temp file
+      final tempDir = Directory.systemTemp;
+      final tempFile = File('${tempDir.path}/temp_scan_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await tempFile.writeAsBytes(jpegBytes);
+      tempFilePath = tempFile.path;
+      debugPrint("[AuthView-Fallback] Frame saved to temp file: $tempFilePath");
+
+      // Copy to public directory for verification with unique timestamp
+      try {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final downloadDir = Directory('/storage/emulated/0/Download');
+        if (await downloadDir.exists()) {
+          final targetFile = File('${downloadDir.path}/rotated_scan_$timestamp.jpg');
+          await tempFile.copy(targetFile.path);
+          debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved rotated image to: ${targetFile.path}");
+        } else {
+          final sdcardDir = Directory('/sdcard');
+          if (await sdcardDir.exists()) {
+            final targetFile = File('${sdcardDir.path}/rotated_scan_$timestamp.jpg');
+            await tempFile.copy(targetFile.path);
+            debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved rotated image to: ${targetFile.path}");
+          }
+        }
+      } catch (exportErr) {
+        debugPrint("[AuthView-Fallback] Export rotated image failed: $exportErr");
+      }
+
+      // 1. Analyze for Barcodes / QR Code using a temp instance of MobileScannerController
+      debugPrint("[AuthView-Fallback] Starting QR detection on captured frame...");
+      final tempController = MobileScannerController();
+      final BarcodeCapture? barcodeCapture = await tempController.analyzeImage(tempFilePath);
+      await tempController.dispose();
+
+      if (barcodeCapture != null && barcodeCapture.barcodes.isNotEmpty) {
+        final rawValue = barcodeCapture.barcodes.first.rawValue;
+        if (rawValue != null) {
+          debugPrint("[AuthView-Fallback] SUCCESS: QR Code found in image: $rawValue");
+          await authVm.handleQrScanned(rawValue);
+          
+          try {
+            await File(tempFilePath).delete();
+          } catch (_) {}
+          return;
+        }
+      }
+
+      debugPrint("[AuthView-Fallback] No QR code detected in frame. Proceeding to OCR scanning...");
+
+      // 2. Process live OCR using file path
+      await authVm.handleOcrScanned(tempFilePath);
+
+      // Clean up file
+      try {
+        await File(tempFilePath).delete();
+      } catch (_) {}
+    } catch (e) {
+      debugPrint("[AuthView-Fallback] Error capturing / scanning image: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCapturingFallback = false;
+        });
+      }
+    }
+  }
+
+  bool _shouldRotate180() {
+    if (_cameraService.cameras.isEmpty) return false;
+    final firstCam = _cameraService.cameras.first;
+    return firstCam.lensDirection == CameraLensDirection.external && firstCam.sensorOrientation == 90;
+  }
+
+  Widget _buildCameraWidget(Widget cameraWidget) {
+    if (_shouldRotate180()) {
+      return RotatedBox(
+        quarterTurns: 2, // 180 degrees
+        child: cameraWidget,
+      );
+    }
+    return cameraWidget;
+  }
 
   @override
   void dispose() {
+    _isDisposed = true;
+    _fallbackScanTimer?.cancel();
     _manualInputController.dispose();
-    _scannerController.dispose();
+    _scannerController?.dispose();
+    _cameraService.stopAsync();
     super.dispose();
   }
 
@@ -49,63 +356,155 @@ class _AuthViewState extends State<AuthView> {
                   children: [
                     // LEFT COLUMN: Viewfinder & Automatic Scanner
                     Expanded(
-                      flex: 4,
+                      flex: 6,
                       child: Container(
                         decoration: AppStyles.glassDecoration(),
                         clipBehavior: Clip.antiAlias,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // 1. Camera QR Scanner Viewport
-                            MobileScanner(
-                              controller: _scannerController,
-                              onDetect: (capture) {
-                                // 1. Process Barcodes / QR Code
-                                final List<Barcode> barcodes = capture.barcodes;
-                                for (final barcode in barcodes) {
-                                  if (barcode.rawValue != null) {
-                                    authVm.handleQrScanned(barcode.rawValue!);
-                                    break;
-                                  }
-                                }
+                            // 1. Camera QR Scanner Viewport or loading indicator or fallback CameraPreview
+                            _useCameraPackageFallback
+                                ? (_cameraService.controller != null &&
+                                        _cameraService.controller!.value.isInitialized)
+                                    ? _buildCameraWidget(
+                                        AspectRatio(
+                                          aspectRatio: _cameraService.controller!.value.aspectRatio,
+                                          child: CameraPreview(_cameraService.controller!),
+                                        ),
+                                      )
+                                    : Container(
+                                        color: AppStyles.backgroundStart,
+                                        child: const Center(
+                                          child: CircularProgressIndicator(
+                                            color: AppStyles.primaryAccent,
+                                          ),
+                                        ),
+                                      )
+                                : _scannerController == null
+                                    ? Container(
+                                        color: AppStyles.backgroundStart,
+                                        child: const Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            CircularProgressIndicator(
+                                              color: AppStyles.primaryAccent,
+                                            ),
+                                            SizedBox(height: 16.0),
+                                            Text(
+                                              "Đang chuẩn bị camera...",
+                                              style: AppStyles.bodyMedium,
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : _buildCameraWidget(
+                                        MobileScanner(
+                                          controller: _scannerController!,
+                                          onDetect: (capture) {
+                                            // 1. Process Barcodes / QR Code
+                                            final List<Barcode> barcodes = capture.barcodes;
+                                            for (final barcode in barcodes) {
+                                              if (barcode.rawValue != null) {
+                                                authVm.handleQrScanned(barcode.rawValue!);
+                                                break;
+                                              }
+                                            }
 
-                                // 2. Process OCR from current image frame on-the-fly
-                                final image = capture.image;
-                                final size = capture.size;
-                                if (image != null) {
-                                  try {
-                                    final inputImage = InputImage.fromBytes(
-                                      bytes: image,
-                                      metadata: InputImageMetadata(
-                                        size: Size(size.width, size.height),
-                                        rotation: InputImageRotation.rotation0deg, // standard camera frame angle
-                                        format: InputImageFormat.nv21,
-                                        bytesPerRow: size.width.toInt(),
+                                            // 2. Process OCR from current image frame on-the-fly (only if image data is returned)
+                                            final image = capture.image;
+                                            final size = capture.size;
+                                            if (image != null) {
+                                              try {
+                                                final inputImage = InputImage.fromBytes(
+                                                  bytes: image,
+                                                  metadata: InputImageMetadata(
+                                                    size: Size(size.width, size.height),
+                                                    rotation: InputImageRotation.rotation0deg, // standard camera frame angle
+                                                    format: InputImageFormat.nv21,
+                                                    bytesPerRow: size.width.toInt(),
+                                                  ),
+                                                );
+                                                authVm.handleOcrImageFrame(inputImage);
+                                              } catch (e) {
+                                                debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
+                                              }
+                                            }
+                                          },
+                                          errorBuilder: (context, error, child) {
+                                            debugPrint("[AuthView] MobileScanner error: ${error.errorCode}, code: ${error.errorDetails?.code}, msg: ${error.errorDetails?.message}, details: ${error.errorDetails?.details}");
+                                            
+                                            // If we get genericError during live streaming and returnImage is true,
+                                            // try falling back to returnImage: false (no raw frame byte delivery to Flutter)
+                                            if (error.errorCode == MobileScannerErrorCode.genericError) {
+                                              if (!_hasAttemptedNoImageFallback) {
+                                                _hasAttemptedNoImageFallback = true;
+                                                final useFront = authVm.useFrontCamera;
+                                                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                                                  if (_isDisposed) return;
+                                                  debugPrint("[AuthView] Caught genericError. Re-initializing with returnImage = false...");
+                                                  if (_scannerController != null) {
+                                                    await _scannerController!.dispose();
+                                                    setState(() {
+                                                      _scannerController = null;
+                                                    });
+                                                  }
+                                                  await _initAndStartScanner(
+                                                    useFront ? CameraFacing.front : CameraFacing.back,
+                                                    returnImage: false,
+                                                  );
+                                                });
+                                                
+                                                return Container(
+                                                  color: AppStyles.backgroundStart,
+                                                  child: const Center(
+                                                    child: CircularProgressIndicator(
+                                                      color: AppStyles.primaryAccent,
+                                                    ),
+                                                  ),
+                                                );
+                                              } else if (!_useCameraPackageFallback) {
+                                                _triggerCameraPackageFallback();
+                                                return Container(
+                                                  color: AppStyles.backgroundStart,
+                                                  child: const Center(
+                                                    child: CircularProgressIndicator(
+                                                      color: AppStyles.primaryAccent,
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            }
+
+                                            return Container(
+                                              color: AppStyles.backgroundStart,
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(16.0),
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    const Icon(Icons.videocam_off, color: AppStyles.errorColor, size: 48.0),
+                                                    const SizedBox(height: 12.0),
+                                                    Text(
+                                                      "Lỗi camera: ${error.errorCode.name}",
+                                                      style: AppStyles.bodyMedium.copyWith(color: AppStyles.errorColor, fontWeight: FontWeight.bold),
+                                                      textAlign: TextAlign.center,
+                                                    ),
+                                                    if (error.errorDetails != null) ...[
+                                                      const SizedBox(height: 8.0),
+                                                      Text(
+                                                        "Code: ${error.errorDetails?.code}\nMsg: ${error.errorDetails?.message}\nDetails: ${error.errorDetails?.details}",
+                                                        style: AppStyles.caption.copyWith(color: AppStyles.textSecondary),
+                                                        textAlign: TextAlign.center,
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
                                       ),
-                                    );
-                                    authVm.handleOcrImageFrame(inputImage);
-                                  } catch (e) {
-                                    debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
-                                  }
-                                }
-                              },
-                              errorBuilder: (context, error, child) {
-                                return Container(
-                                  color: AppStyles.backgroundStart,
-                                  child: const Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.videocam_off, color: AppStyles.textSecondary, size: 48.0),
-                                      SizedBox(height: 12.0),
-                                      Text(
-                                        "Đang chuẩn bị camera...",
-                                        style: AppStyles.bodyMedium,
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
 
                             // 2. Cyan Scanner Alignment Guides Overlay
                             Container(
@@ -148,12 +547,35 @@ class _AuthViewState extends State<AuthView> {
                                   color: Colors.black54,
                                   borderRadius: BorderRadius.circular(20.0),
                                 ),
-                                child: const Text(
-                                  "Căn chỉnh QR CCCD hoặc thẻ của bạn vào ô quét",
+                                child: Text(
+                                  _useCameraPackageFallback
+                                      ? "Chế độ tương thích Android Box. Đang tự động quét..."
+                                      : "Căn chỉnh QR CCCD hoặc thẻ của bạn vào ô quét",
                                   style: AppStyles.bodyMedium,
                                 ),
                               ),
                             ),
+
+                            // 5. Fallback analyzer status overlay
+                            if (_isCapturingFallback)
+                              Container(
+                                color: Colors.black45,
+                                child: const Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircularProgressIndicator(
+                                        color: AppStyles.primaryAccent,
+                                      ),
+                                      SizedBox(height: 16.0),
+                                      Text(
+                                        "Đang phân tích hình ảnh...",
+                                        style: AppStyles.bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -162,7 +584,7 @@ class _AuthViewState extends State<AuthView> {
 
                     // RIGHT COLUMN: Sign-In status and Manual input panel
                     Expanded(
-                      flex: 5,
+                      flex: 4,
                       child: SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
                         child: Column(

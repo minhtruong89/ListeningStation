@@ -93,6 +93,10 @@ class AuthViewModel extends ChangeNotifier {
 
   bool get flagOperatorExact => _llmService.flagOperatorExact;
 
+  bool get useFrontCamera {
+    return !_cameraService.hasBackCamera;
+  }
+
   double get maxTransactionAmount => _maxTransactionAmount;
   List<VerifiedOperatorDisplayItem> get verifiedOperatorsDisplay => _verifiedOperatorsDisplay;
   List<Operator> get verifiedOperators => _verifiedOperators;

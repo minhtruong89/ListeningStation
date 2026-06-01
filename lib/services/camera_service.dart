@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart';
 abstract class ICameraService {
   Future<void> initializeAsync();
   bool get hasCamera;
+  bool get hasBackCamera;
+  bool get hasExternalCamera;
+  bool get useFrontCamera;
   CameraController? get controller;
   Future<void> startAsync();
   Future<void> stopAsync();
@@ -19,6 +22,28 @@ class CameraService implements ICameraService {
   bool get hasCamera => _hasCamera;
 
   @override
+  bool get hasBackCamera {
+    if (_cameras.isEmpty) return false;
+    return _cameras.any((c) => c.lensDirection == CameraLensDirection.back);
+  }
+
+  @override
+  bool get hasExternalCamera {
+    if (_cameras.isEmpty) return false;
+    return _cameras.any((c) => c.lensDirection == CameraLensDirection.external);
+  }
+
+  @override
+  bool get useFrontCamera {
+    if (_cameras.isEmpty) return false;
+    final hasBackOrExternal = _cameras.any((c) =>
+        c.lensDirection == CameraLensDirection.back ||
+        c.lensDirection == CameraLensDirection.external);
+    if (hasBackOrExternal) return false;
+    return _cameras.any((c) => c.lensDirection == CameraLensDirection.front);
+  }
+
+  @override
   CameraController? get controller => _controller;
 
   @override
@@ -29,8 +54,13 @@ class CameraService implements ICameraService {
     try {
       _cameras = await availableCameras();
       _hasCamera = _cameras.isNotEmpty;
+      debugPrint("[CameraService] Detected ${_cameras.length} cameras:");
+      for (var i = 0; i < _cameras.length; i++) {
+        final c = _cameras[i];
+        debugPrint("  Camera [$i]: name=${c.name}, lensDirection=${c.lensDirection}, sensorOrientation=${c.sensorOrientation}");
+      }
     } catch (e) {
-      debugPrint("Error detecting cameras: \$e");
+      debugPrint("Error detecting cameras: $e");
       _hasCamera = false;
     }
   }
@@ -40,24 +70,41 @@ class CameraService implements ICameraService {
     if (!_hasCamera) return;
     if (_controller != null) return;
 
-    // Use rear camera as default on mobile, or front if rear is not available
-    final selectedCamera = _cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.back,
-      orElse: () => _cameras.first,
-    );
+    debugPrint("[CameraService] Starting camera search among ${_cameras.length} detected cameras...");
 
-    _controller = CameraController(
-      selectedCamera,
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
+    for (var i = 0; i < _cameras.length; i++) {
+      final camera = _cameras[i];
+      debugPrint("[CameraService] Testing Camera [$i] (name=${camera.name}, direction=${camera.lensDirection})...");
 
-    try {
-      await _controller!.initialize();
-    } catch (e) {
-      debugPrint("Error starting camera: \$e");
-      _controller = null;
+      // Try all presets for maximum compatibility (some USB webcams only support their native resolution)
+      for (var preset in [
+        ResolutionPreset.high,
+        ResolutionPreset.veryHigh,
+        ResolutionPreset.max,
+        ResolutionPreset.medium,
+        ResolutionPreset.low,
+      ]) {
+        debugPrint("[CameraService]   Attempting with preset: $preset");
+        _controller = CameraController(
+          camera,
+          preset,
+          enableAudio: false,
+          imageFormatGroup: ImageFormatGroup.jpeg,
+        );
+
+        try {
+          await _controller!.initialize();
+          debugPrint("[CameraService]   SUCCESS! Camera [$i] initialized with preset $preset");
+          return; // Done, camera is running!
+        } catch (e) {
+          debugPrint("[CameraService]   FAILED: Camera [$i] preset $preset initialization error: $e");
+          await _controller!.dispose();
+          _controller = null;
+        }
+      }
     }
+
+    debugPrint("[CameraService] ERROR: Tested all ${_cameras.length} cameras and none could be initialized.");
   }
 
   @override

@@ -19,6 +19,7 @@ class ConversationViewModel extends ChangeNotifier {
   bool _isFinalizeConfirmed = false;
 
   final List<ConversationMessage> _messages = [];
+  int _currentRequestToken = 0;
 
   ConversationViewModel(this._llmService, this._speechService) {
     _isMuted = _speechService.isMuted;
@@ -45,6 +46,7 @@ class ConversationViewModel extends ChangeNotifier {
   List<ConversationMessage> get messages => _messages;
 
   Future<void> sendMessageAsync({String? hiddenInput}) async {
+    final myToken = ++_currentRequestToken;
     final isHidden = hiddenInput != null && hiddenInput.isNotEmpty;
     final textToProcess = isHidden ? hiddenInput : _userInput;
 
@@ -74,6 +76,9 @@ class ConversationViewModel extends ChangeNotifier {
 
     final String aiResponse = await _llmService.getResponseAsync(historyForLlm, textToProcess);
     
+    // Cancel if interrupted by demo mode or newer requests
+    if (myToken != _currentRequestToken) return;
+
     _messages.add(ConversationMessage(
       sender: "Trạm Lắng Nghe",
       content: aiResponse,
@@ -189,6 +194,7 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   Future<void> runDemoModeAsync() async {
+    _currentRequestToken++; // Cancel any pending/running API requests from calling speakAsync
     _speechService.stop(); // Immediate silence
     _isProcessing = true;
     _messages.clear();

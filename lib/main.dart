@@ -42,6 +42,10 @@ void main() async {
 
   // Initialize async assets and local databases sequentially
   await dataService.initializeAsync();
+  
+  // TODO TEST Call this to clear operator verifications at startup (uncomment to activate)
+  await dataService.clearOperatorVerificationsAsync();
+  
   await llmService.initializeAsync();
 
   runApp(

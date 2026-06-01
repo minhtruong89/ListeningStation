@@ -53,12 +53,96 @@ class _ConversationViewState extends State<ConversationView> {
               // Landscape split Row
               Padding(
                 padding: const EdgeInsets.all(24.0),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // LEFT COLUMN: Chat dialogue bubble history stream
+                    // TOP CONTROL BAR: Horizontal row of controls
+                    Row(
+                      children: [
+                        // Current system state indicator
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                          decoration: AppStyles.glassDecoration(radius: 8.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 10.0,
+                                height: 10.0,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
+                                ),
+                              ),
+                              const SizedBox(width: 8.0),
+                              Text(
+                                vm.isProcessing ? "Đang xử lý phản hồi..." : "Trợ lý hoạt động",
+                                style: TextStyle(
+                                  color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
+                                  fontSize: 13.0,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+  
+                        // Mute Speech button
+                        ElevatedButton.icon(
+                          onPressed: () => vm.toggleMute(),
+                          icon: Icon(vm.isMuted ? Icons.volume_off : Icons.volume_up, size: 18.0),
+                          label: Text(vm.isMuted ? "BẬT ÂM" : "TẮT ÂM"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: vm.isMuted ? AppStyles.warningColor : AppStyles.primaryAccent,
+                            foregroundColor: AppStyles.backgroundEnd,
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
+                            elevation: 0.0,
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+  
+                        // Run Demo script button
+                        ElevatedButton.icon(
+                          onPressed: () => vm.runDemoModeAsync(),
+                          icon: const Icon(Icons.slideshow, size: 18.0),
+                          label: const Text("CHẠY KỊCH BẢN DEMO"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppStyles.glassCardBg,
+                            foregroundColor: AppStyles.textPrimary,
+                            surfaceTintColor: Colors.transparent,
+                            side: const BorderSide(color: AppStyles.glassCardBorder),
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
+                            elevation: 0.0,
+                          ),
+                        ),
+                        
+                        const Spacer(),
+  
+                        // Stop / Finalize Button
+                        ElevatedButton.icon(
+                          onPressed: () => vm.showFinalizeAsync(),
+                          icon: const Icon(Icons.check_circle_outline, size: 18.0),
+                          label: const Text("KẾT THÚC HỘI THOẠI & PHÊ DUYỆT"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppStyles.errorColor,
+                            foregroundColor: AppStyles.textPrimary,
+                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 14.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
+                            elevation: 0.0,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16.0),
+
+                    // FULL WIDTH: Chat dialogue bubble history stream
                     Expanded(
-                      flex: 6,
                       child: Container(
                         padding: const EdgeInsets.all(16.0),
                         decoration: AppStyles.glassDecoration(),
@@ -80,7 +164,7 @@ class _ConversationViewState extends State<ConversationView> {
                                         final msg = vm.messages[index];
                                         final isPatient = msg.sender == "Người cần giúp đỡ" || msg.sender == "Patient";
                                         final isSystem = msg.sender == "System";
-
+ 
                                         if (isSystem) {
                                           return Center(
                                             child: Container(
@@ -94,14 +178,14 @@ class _ConversationViewState extends State<ConversationView> {
                                             ),
                                           );
                                         }
-
+ 
                                         return Align(
                                           alignment: isPatient ? Alignment.centerRight : Alignment.centerLeft,
                                           child: Container(
                                             margin: const EdgeInsets.symmetric(vertical: 6.0),
                                             padding: const EdgeInsets.all(14.0),
                                             constraints: BoxConstraints(
-                                              maxWidth: MediaQuery.of(context).size.width * 0.35,
+                                              maxWidth: MediaQuery.of(context).size.width * 0.55,
                                             ),
                                             decoration: BoxDecoration(
                                               color: isPatient
@@ -143,7 +227,7 @@ class _ConversationViewState extends State<ConversationView> {
                                     ),
                             ),
                             const SizedBox(height: 12.0),
-
+ 
                             // User text manual override input row
                             Row(
                               children: [
@@ -191,125 +275,6 @@ class _ConversationViewState extends State<ConversationView> {
                                   ),
                                 ),
                               ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 24.0),
-
-                    // RIGHT COLUMN: Active operation controls
-                    Expanded(
-                      flex: 4,
-                      child: SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Header title
-                            const Row(
-                              children: [
-                                Icon(Icons.assistant, color: AppStyles.primaryAccent, size: 28.0),
-                                SizedBox(width: 8.0),
-                                Text("BÀN ĐIỀU KHIỂN HỖ TRỢ", style: AppStyles.titleLarge),
-                              ],
-                            ),
-                            const SizedBox(height: 16.0),
-  
-                            // Current system state indicator
-                            Container(
-                              padding: const EdgeInsets.all(16.0),
-                              decoration: AppStyles.glassDecoration(),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 12.0,
-                                    height: 12.0,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12.0),
-                                  Expanded(
-                                    child: Text(
-                                      vm.isProcessing ? "Đang xử lý phản hồi AI..." : "Trợ lý giọng nói trực tiếp hoạt động",
-                                      style: AppStyles.bodyLarge.copyWith(
-                                        color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 24.0),
-  
-                            // Mute Speech button
-                            ElevatedButton.icon(
-                              onPressed: () => vm.toggleMute(),
-                              icon: Icon(vm.isMuted ? Icons.volume_off : Icons.volume_up, size: 24.0),
-                              label: Text(vm.isMuted ? "BẬT ÂM TRỢ LÝ GIỌNG NÓI" : "TẮT ÂM TRỢ LÝ GIỌNG NÓI"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: vm.isMuted ? AppStyles.warningColor : AppStyles.primaryAccent,
-                                foregroundColor: AppStyles.backgroundEnd,
-                                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                textStyle: AppStyles.bodyLarge,
-                                elevation: 0.0,
-                              ),
-                            ),
-                            const SizedBox(height: 16.0),
-  
-                            // Run Demo script button
-                            ElevatedButton.icon(
-                              onPressed: () => vm.runDemoModeAsync(),
-                              icon: const Icon(Icons.slideshow, size: 24.0),
-                              label: const Text("CHẠY KỊCH BẢN DEMO"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppStyles.glassCardBg,
-                                foregroundColor: AppStyles.textPrimary,
-                                surfaceTintColor: Colors.transparent,
-                                side: const BorderSide(color: AppStyles.glassCardBorder),
-                                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                textStyle: AppStyles.bodyLarge,
-                                elevation: 0.0,
-                              ),
-                            ),
-                            const SizedBox(height: 16.0),
-  
-                            // Show Summary button
-                            ElevatedButton.icon(
-                              onPressed: () => vm.showSummaryAsync(),
-                              icon: const Icon(Icons.summarize, size: 24.0),
-                              label: const Text("TÓM TẮT HỒ SƠ AI"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppStyles.glassCardBg,
-                                foregroundColor: AppStyles.textPrimary,
-                                surfaceTintColor: Colors.transparent,
-                                side: const BorderSide(color: AppStyles.glassCardBorder),
-                                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                textStyle: AppStyles.bodyLarge,
-                                elevation: 0.0,
-                              ),
-                            ),
-                            const SizedBox(height: 24.0),
-  
-                            // Stop / Finalize Button
-                            SizedBox(
-                              height: 60.0,
-                              child: ElevatedButton(
-                                onPressed: () => vm.showFinalizeAsync(),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppStyles.errorColor,
-                                  foregroundColor: AppStyles.textPrimary,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                  textStyle: AppStyles.bodyLarge.copyWith(fontWeight: FontWeight.bold),
-                                  elevation: 0.0,
-                                ),
-                                child: const Text("KẾT THÚC HỘI THOẠI & PHÊ DUYỆT"),
-                              ),
                             ),
                           ],
                         ),
@@ -410,7 +375,7 @@ class _ConversationViewState extends State<ConversationView> {
                                     size: 28.0,
                                   ),
                                   const SizedBox(width: 12.0),
-                                  const Text("ĐÁNH GIÁ CHỈ ĐỊNH PHÁP LÝ", style: AppStyles.titleLarge),
+                                  const Text("TÓM TẮT HỘI THOẠI", style: AppStyles.titleLarge),
                                 ],
                               ),
                               if (!vm.isFinalizeConfirmed)

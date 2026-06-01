@@ -16,6 +16,7 @@ abstract class IDataService {
   Future<double> getTotalSpentAsync(DateTime start, DateTime end);
   Future<void> recordOperatorVerificationAsync(int operatorId);
   Future<int> getOperatorVerificationCountAsync(int operatorId, DateTime date);
+  Future<void> clearOperatorVerificationsAsync();
   String get workingHourStart;
   String get workingHourEnd;
 }
@@ -228,5 +229,15 @@ class DataService implements IDataService {
     );
     if (maps.isEmpty) return 0;
     return maps.first['Count'] ?? 0;
+  }
+
+  @override
+  Future<void> clearOperatorVerificationsAsync() async {
+    try {
+      await _db.delete('OperatorVerifications');
+      debugPrint("[DataService] Cleared all operator verifications.");
+    } catch (e) {
+      debugPrint("[DataService] Error clearing operator verifications: $e");
+    }
   }
 }

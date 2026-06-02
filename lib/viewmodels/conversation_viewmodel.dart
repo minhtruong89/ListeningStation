@@ -202,9 +202,10 @@ class ConversationViewModel extends ChangeNotifier {
 
     final demoMsgs = await _llmService.getDemoMessagesAsync();
     for (var msg in demoMsgs) {
+      debugPrint("[DEMO] Message: $msg");
       _messages.add(msg);
       notifyListeners();
-      await Future.delayed(const Duration(milliseconds: 100)); // Smooth script population
+      await Future.delayed(const Duration(milliseconds: 500)); // Smooth script population
     }
 
     _isProcessing = false;

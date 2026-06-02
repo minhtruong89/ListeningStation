@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -34,13 +34,68 @@ class _AuthViewState extends State<AuthView> {
   bool _useCameraPackageFallback = false;
   bool _isCapturingFallback = false;
   Timer? _fallbackScanTimer;
-  bool _isTakePictureFocused = false;
-  bool _isGrabFrameFocused = false;
+  bool _isConfirmButtonFocused = false;
+
+  late final FocusNode _sliderExactFocus;
+  late final FocusNode _sliderMinFocus;
+  late final FocusNode _sliderMaxFocus;
+  late final FocusNode _confirmButtonFocusNode;
+
+  KeyEventResult _handleSliderKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        node.nextFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        node.previousFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
 
   @override
   void initState() {
     super.initState();
     _cameraService = context.read<ICameraService>();
+    _sliderExactFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
+    _sliderMinFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
+    _sliderMaxFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
+    _confirmButtonFocusNode = FocusNode(onKeyEvent: (node, event) {
+      if (event is KeyDownEvent) {
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.numpadEnter ||
+            key == LogicalKeyboardKey.accept ||
+            key == LogicalKeyboardKey.space) {
+          final authVm = context.read<AuthViewModel>();
+          final mainVm = context.read<MainViewModel>();
+          authVm.confirmRangeAsync(() {
+            mainVm.navigateTo(AppStage.conversation);
+          });
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowUp) {
+          node.previousFocus();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowDown) {
+          node.nextFocus();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    });
+    _confirmButtonFocusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isConfirmButtonFocused = _confirmButtonFocusNode.hasFocus;
+        });
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _triggerCameraPackageFallback();
@@ -95,6 +150,20 @@ class _AuthViewState extends State<AuthView> {
     }
   }
 
+  void _startFallbackScanLoop() {
+    _fallbackScanTimer?.cancel();
+    _fallbackScanTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (_isDisposed || !mounted) {
+        timer.cancel();
+        return;
+      }
+      final authVm = context.read<AuthViewModel>();
+      if (authVm.isVerified || authVm.isRangePopupVisible || _isCapturingFallback) return;
+
+      await _triggerGrabFrameAndScan();
+    });
+  }
+
   void _triggerCameraPackageFallback() {
     if (_useCameraPackageFallback || _isDisposed) return;
     debugPrint("[AuthView] Initializing standard camera package preview...");
@@ -115,6 +184,7 @@ class _AuthViewState extends State<AuthView> {
       await _cameraService.startAsync();
       if (mounted) {
         setState(() {});
+        _startFallbackScanLoop();
       }
     });
   }
@@ -136,60 +206,10 @@ class _AuthViewState extends State<AuthView> {
     }
   }
 
-  Future<void> _triggerTakePictureOnly() async {
-    if (_cameraService.controller == null || !_cameraService.controller!.value.isInitialized) return;
 
-    if (mounted) {
-      setState(() {
-        _isCapturingFallback = true;
-      });
-    }
-
-    try {
-      debugPrint("[AuthView-TakePicture] Capturing photo via viewport screenshot...");
-      final pngBytes = await _capturePreviewScreenshot();
-      if (pngBytes == null) {
-        throw Exception("Failed to capture viewport screenshot");
-      }
-
-      final decodedImage = img.decodePng(pngBytes);
-      if (decodedImage == null) {
-        throw Exception("Failed to decode PNG bytes");
-      }
-
-      final jpegBytes = img.encodeJpg(decodedImage);
-
-      // Copy to public directory for verification with unique timestamp
-      try {
-        final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final downloadDir = Directory('/storage/emulated/0/Download');
-        if (await downloadDir.exists()) {
-          final targetFile = File('${downloadDir.path}/rotated_scan_photo_$timestamp.jpg');
-          await targetFile.writeAsBytes(jpegBytes);
-          debugPrint("[AuthView-TakePicture] EXPORT SUCCESS: Saved photo to: ${targetFile.path}");
-        } else {
-          final sdcardDir = Directory('/sdcard');
-          if (await sdcardDir.exists()) {
-            final targetFile = File('${sdcardDir.path}/rotated_scan_photo_$timestamp.jpg');
-            await targetFile.writeAsBytes(jpegBytes);
-            debugPrint("[AuthView-TakePicture] EXPORT SUCCESS: Saved photo to: ${targetFile.path}");
-          }
-        }
-      } catch (e) {
-        debugPrint("[AuthView-TakePicture] Export failed: $e");
-      }
-    } catch (e) {
-      debugPrint("[AuthView-TakePicture] Capture error: $e");
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isCapturingFallback = false;
-        });
-      }
-    }
-  }
 
   Future<void> _triggerGrabFrameAndScan() async {
+    if (_isCapturingFallback) return;
     if (_cameraService.controller == null || !_cameraService.controller!.value.isInitialized) return;
 
     final authVm = context.read<AuthViewModel>();
@@ -213,9 +233,9 @@ class _AuthViewState extends State<AuthView> {
         throw Exception("Failed to decode PNG bytes");
       }
 
-      // Crop to the center 400x400 to match the grab frame behavior
-      final int cropWidth = 400;
-      final int cropHeight = 400;
+      // Crop to the center 600x380 to match CCCD standard aspect ratio
+      final int cropWidth = 600;
+      final int cropHeight = 380;
       final int centerX = rgbImage.width ~/ 2;
       final int centerY = rgbImage.height ~/ 2;
       final int xStart = (centerX - cropWidth ~/ 2).clamp(0, rgbImage.width);
@@ -313,6 +333,10 @@ class _AuthViewState extends State<AuthView> {
     _fallbackScanTimer?.cancel();
     _manualInputController.dispose();
     _scannerController?.dispose();
+    _sliderExactFocus.dispose();
+    _sliderMinFocus.dispose();
+    _sliderMaxFocus.dispose();
+    _confirmButtonFocusNode.dispose();
     _cameraService.stopAsync();
     super.dispose();
   }
@@ -321,6 +345,9 @@ class _AuthViewState extends State<AuthView> {
   Widget build(BuildContext context) {
     final authVm = context.watch<AuthViewModel>();
     final mainVm = context.read<MainViewModel>();
+    final Size screenSize = MediaQuery.of(context).size;
+    double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
+    scale = 1.5;
 
     return Scaffold(
       body: Container(
@@ -493,30 +520,30 @@ class _AuthViewState extends State<AuthView> {
 
                             // 2. Cyan Scanner Alignment Guides Overlay
                             Container(
-                              width: 250.0,
-                              height: 250.0,
+                              width: 300.0 * scale,
+                              height: 190.0 * scale,
                               decoration: BoxDecoration(
                                 border: Border.all(
                                   color: AppStyles.primaryAccent,
-                                  width: 2.5,
+                                  width: 2.5 * scale,
                                 ),
-                                borderRadius: BorderRadius.circular(16.0),
+                                borderRadius: BorderRadius.circular(16.0 * scale),
                               ),
                             ),
                             
                             // 3. Scan Sweep Animation Indicator
                             Positioned(
-                              top: 60.0,
+                              top: 60.0 * scale,
                               child: Container(
-                                width: 260.0,
-                                height: 3.0,
+                                width: 430.0 * scale,
+                                height: 3.0 * scale,
                                 decoration: BoxDecoration(
                                   color: AppStyles.primaryAccent,
                                   boxShadow: [
                                     BoxShadow(
                                       color: AppStyles.primaryAccent.withValues(alpha: 0.8),
-                                      blurRadius: 8.0,
-                                      spreadRadius: 2.0,
+                                      blurRadius: 8.0 * scale,
+                                      spreadRadius: 2.0 * scale,
                                     )
                                   ]
                                 ),
@@ -525,18 +552,20 @@ class _AuthViewState extends State<AuthView> {
 
                             // 4. Instructions
                             Positioned(
-                              bottom: 24.0,
+                              bottom: 24.0 * scale,
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 8.0 * scale),
                                 decoration: BoxDecoration(
                                   color: Colors.black54,
-                                  borderRadius: BorderRadius.circular(20.0),
+                                  borderRadius: BorderRadius.circular(20.0 * scale),
                                 ),
                                 child: Text(
-                                  _useCameraPackageFallback
-                                      ? "Chế độ tương thích Android Box. Đang tự động quét..."
-                                      : "Căn chỉnh QR CCCD hoặc thẻ của bạn vào ô quét",
-                                  style: AppStyles.bodyMedium,
+                                  "Căn chỉnh QR CCCD hoặc thẻ của bạn vào ô quét",
+                                  style: AppStyles.bodyMedium.copyWith(
+                                    color: AppStyles.primaryAccent,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14.0 * scale,
+                                  ),
                                 ),
                               ),
                             ),
@@ -545,17 +574,22 @@ class _AuthViewState extends State<AuthView> {
                             if (_isCapturingFallback)
                               Container(
                                 color: Colors.black45,
-                                child: const Center(
+                                child: Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       CircularProgressIndicator(
                                         color: AppStyles.primaryAccent,
+                                        strokeWidth: 4.0 * scale,
                                       ),
-                                      SizedBox(height: 16.0),
+                                      SizedBox(height: 16.0 * scale),
                                       Text(
                                         "Đang phân tích hình ảnh...",
-                                        style: AppStyles.bodyMedium,
+                                        style: AppStyles.bodyMedium.copyWith(
+                                          color: AppStyles.primaryAccent,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14.0 * scale,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -576,45 +610,54 @@ class _AuthViewState extends State<AuthView> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             // App Title Header
-                            const Row(
+                            Row(
                               children: [
-                                Icon(Icons.hearing, color: AppStyles.primaryAccent, size: 28.0),
-                                SizedBox(width: 8.0),
+                                Icon(Icons.hearing, color: AppStyles.primaryAccent, size: 28.0 * scale),
+                                SizedBox(width: 8.0 * scale),
                                 Text(
                                   "TRẠM LẮNG NGHE",
-                                  style: AppStyles.titleLarge,
+                                  style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12.0),
+                            SizedBox(height: 12.0 * scale),
                             
                             // Stage Verification Info Card
                             Container(
-                              padding: const EdgeInsets.all(12.0),
-                              decoration: AppStyles.glassDecoration(borderColor: AppStyles.primaryAccent.withValues(alpha: 0.3)),
+                              padding: EdgeInsets.all(12.0 * scale),
+                              decoration: AppStyles.glassDecoration(
+                                borderColor: AppStyles.primaryAccent.withValues(alpha: 0.3),
+                                radius: 16.0 * scale,
+                              ),
                               child: Text(
                                 authVm.verificationInfoText,
-                                style: AppStyles.bodyMedium.copyWith(color: AppStyles.primaryAccent),
+                                style: AppStyles.bodyMedium.copyWith(
+                                  color: AppStyles.primaryAccent,
+                                  fontSize: 14.0 * scale,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 12.0),
+                            SizedBox(height: 12.0 * scale),
 
                             // Verified list of operators
                             Container(
-                              height: 150.0, // Fixed constraint height for scroll list
-                              padding: const EdgeInsets.all(12.0),
-                              decoration: AppStyles.glassDecoration(),
+                              height: 150.0 * scale, // Fixed constraint height for scroll list
+                              padding: EdgeInsets.all(12.0 * scale),
+                              decoration: AppStyles.glassDecoration(radius: 16.0 * scale),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text("Người Bảo Chứng Đã Xác Nhận", style: AppStyles.bodyLarge),
-                                  const SizedBox(height: 8.0),
+                                  Text(
+                                    "Người Bảo Chứng Đã Xác Nhận",
+                                    style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                  ),
+                                  SizedBox(height: 8.0 * scale),
                                   Expanded(
                                     child: authVm.verifiedOperatorsDisplay.isEmpty
-                                        ? const Center(
+                                        ? Center(
                                             child: Text(
                                               "Chưa có người bảo chứng nào quét thẻ",
-                                              style: AppStyles.caption,
+                                              style: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
                                             ),
                                           )
                                         : ListView.builder(
@@ -622,20 +665,32 @@ class _AuthViewState extends State<AuthView> {
                                             itemBuilder: (context, index) {
                                               final op = authVm.verifiedOperatorsDisplay[index];
                                               return Container(
-                                                margin: const EdgeInsets.only(bottom: 6.0),
-                                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                                margin: EdgeInsets.only(bottom: 6.0 * scale),
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: 12.0 * scale,
+                                                  vertical: 8.0 * scale,
+                                                ),
                                                 decoration: BoxDecoration(
                                                   color: AppStyles.glassCardBorder.withValues(alpha: 0.3),
-                                                  borderRadius: BorderRadius.circular(8.0),
+                                                  borderRadius: BorderRadius.circular(8.0 * scale),
                                                 ),
                                                 child: Row(
                                                   children: [
-                                                    const Icon(Icons.check_circle, color: AppStyles.successColor, size: 18.0),
-                                                    const SizedBox(width: 8.0),
+                                                    Icon(Icons.check_circle, color: AppStyles.successColor, size: 18.0 * scale),
+                                                    SizedBox(width: 8.0 * scale),
                                                     Expanded(
-                                                      child: Text(op.displayName, style: AppStyles.bodyMedium.copyWith(color: AppStyles.textPrimary)),
+                                                      child: Text(
+                                                        op.displayName,
+                                                        style: AppStyles.bodyMedium.copyWith(
+                                                          color: AppStyles.textPrimary,
+                                                          fontSize: 14.0 * scale,
+                                                        ),
+                                                      ),
                                                     ),
-                                                    Text(op.dailyCountText, style: AppStyles.caption),
+                                                    Text(
+                                                      op.dailyCountText,
+                                                      style: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
+                                                    ),
                                                   ],
                                                 ),
                                               );
@@ -645,13 +700,14 @@ class _AuthViewState extends State<AuthView> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 12.0),
+                            SizedBox(height: 12.0 * scale),
 
                             // Status text container
                             if (authVm.ruleStatusText.isNotEmpty) ...[
                               Container(
-                                padding: const EdgeInsets.all(10.0),
+                                padding: EdgeInsets.all(10.0 * scale),
                                 decoration: AppStyles.glassDecoration(
+                                  radius: 16.0 * scale,
                                   borderColor: authVm.ruleStatusText.contains("Thành công")
                                       ? AppStyles.successColor.withValues(alpha: 0.5)
                                       : AppStyles.errorColor.withValues(alpha: 0.5),
@@ -661,102 +717,39 @@ class _AuthViewState extends State<AuthView> {
                                     Icon(
                                       authVm.ruleStatusText.contains("Thành công") ? Icons.check : Icons.warning_amber_outlined,
                                       color: authVm.ruleStatusText.contains("Thành công") ? AppStyles.successColor : AppStyles.errorColor,
-                                      size: 18.0,
+                                      size: 18.0 * scale,
                                     ),
-                                    const SizedBox(width: 8.0),
+                                    SizedBox(width: 8.0 * scale),
                                     Expanded(
                                       child: Text(
                                         authVm.ruleStatusText,
                                         style: AppStyles.bodyMedium.copyWith(
                                           color: authVm.ruleStatusText.contains("Thành công") ? AppStyles.successColor : AppStyles.errorColor,
                                           fontWeight: FontWeight.w600,
+                                          fontSize: 14.0 * scale,
                                         ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 12.0),
+                              SizedBox(height: 12.0 * scale),
                             ],
-
-                            // Grab Frame and Take Picture Manual Trigger Buttons
-                            Column(
-                              children: [
-                                Focus(
-                                  onFocusChange: (hasFocus) {
-                                    setState(() {
-                                      _isTakePictureFocused = hasFocus;
-                                    });
-                                  },
-                                  child: SizedBox(
-                                    height: 50.0,
-                                    width: double.infinity,
-                                    child: ElevatedButton.icon(
-                                      autofocus: true,
-                                      onPressed: _isCapturingFallback ? null : () {
-                                        _triggerTakePictureOnly();
-                                      },
-                                      icon: const Icon(Icons.camera_alt),
-                                      label: const Text(
-                                        "CHỤP ẢNH (TAKE PICTURE)",
-                                        style: AppStyles.bodyLarge,
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _isTakePictureFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.6),
-                                        foregroundColor: AppStyles.backgroundEnd,
-                                        side: _isTakePictureFocused ? const BorderSide(color: Colors.white, width: 3.5) : null,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                        elevation: _isTakePictureFocused ? 12.0 : 0.0,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 12.0),
-                                Focus(
-                                  onFocusChange: (hasFocus) {
-                                    setState(() {
-                                      _isGrabFrameFocused = hasFocus;
-                                    });
-                                  },
-                                  child: SizedBox(
-                                    height: 50.0,
-                                    width: double.infinity,
-                                    child: ElevatedButton.icon(
-                                      onPressed: _isCapturingFallback ? null : () {
-                                        _triggerGrabFrameAndScan();
-                                      },
-                                      icon: const Icon(Icons.qr_code_scanner),
-                                      label: const Text(
-                                        "QUÉT HÌNH (GRAB FRAME)",
-                                        style: AppStyles.bodyLarge,
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _isGrabFrameFocused ? AppStyles.secondaryAccent : AppStyles.secondaryAccent.withValues(alpha: 0.6),
-                                        foregroundColor: AppStyles.backgroundEnd,
-                                        side: _isGrabFrameFocused ? const BorderSide(color: Colors.white, width: 3.5) : null,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                        elevation: _isGrabFrameFocused ? 12.0 : 0.0,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16.0),
 
                             // Manual CCCD Input
                             Row(
                               children: [
                                 Expanded(
                                   child: Container(
-                                    decoration: AppStyles.glassDecoration(radius: 12.0),
-                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                    decoration: AppStyles.glassDecoration(radius: 12.0 * scale),
+                                    padding: EdgeInsets.symmetric(horizontal: 16.0 * scale),
                                     child: TextField(
                                       controller: _manualInputController,
-                                      style: AppStyles.bodyLarge,
-                                      decoration: const InputDecoration(
+                                      enabled: !authVm.isRangePopupVisible,
+                                      style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                      decoration: InputDecoration(
                                         hintText: "Nhập số CCCD thủ công",
-                                        hintStyle: AppStyles.caption,
+                                        hintStyle: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
                                         border: InputBorder.none,
                                       ),
                                       keyboardType: TextInputType.number,
@@ -769,11 +762,11 @@ class _AuthViewState extends State<AuthView> {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12.0),
+                                SizedBox(width: 12.0 * scale),
                                 SizedBox(
-                                  height: 45.0,
+                                  height: 45.0 * scale,
                                   child: ElevatedButton(
-                                    onPressed: () {
+                                    onPressed: authVm.isRangePopupVisible ? null : () {
                                       final val = _manualInputController.text;
                                       if (val.trim().isNotEmpty) {
                                         authVm.handleManualInput(val.trim());
@@ -783,10 +776,10 @@ class _AuthViewState extends State<AuthView> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppStyles.primaryAccent,
                                       foregroundColor: AppStyles.backgroundEnd,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
                                       elevation: 0.0,
                                     ),
-                                    child: const Icon(Icons.send),
+                                    child: Icon(Icons.send, size: 18.0 * scale),
                                   ),
                                 ),
                               ],
@@ -805,38 +798,50 @@ class _AuthViewState extends State<AuthView> {
                   color: Colors.black87,
                   child: Center(
                     child: Container(
-                      width: 550.0,
-                      padding: const EdgeInsets.all(20.0),
-                      decoration: AppStyles.glassDecoration(borderColor: AppStyles.primaryAccent),
+                      width: 550.0 * scale,
+                      padding: EdgeInsets.all(20.0 * scale),
+                      decoration: AppStyles.glassDecoration(
+                        borderColor: AppStyles.primaryAccent,
+                        radius: 16.0 * scale,
+                      ),
                       child: SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Row(
+                            Row(
                               children: [
-                                Icon(Icons.tune, color: AppStyles.primaryAccent, size: 24.0),
-                                SizedBox(width: 12.0),
-                                Text("THIẾT LẬP HẠN MỨC CA PHÊ DUYỆT", style: AppStyles.bodyLarge),
+                                Icon(Icons.tune, color: AppStyles.primaryAccent, size: 24.0 * scale),
+                                SizedBox(width: 12.0 * scale),
+                                Text(
+                                  "THIẾT LẬP HẠN MỨC CA PHÊ DUYỆT",
+                                  style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                ),
                               ],
                             ),
-                            const SizedBox(height: 6.0),
-                            const Text(
+                            SizedBox(height: 6.0 * scale),
+                            Text(
                               "Thiết lập khoảng giới hạn tiền được duyệt cho ca này.",
-                              style: AppStyles.caption,
+                              style: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
                             ),
-                            const SizedBox(height: 16.0),
+                            SizedBox(height: 16.0 * scale),
 
                             if (authVm.flagOperatorExact) ...[
                               // Hạn mức Đề ra Slider
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text("Hạn mức Đề ra:", style: AppStyles.bodyMedium),
+                                  Text(
+                                    "Hạn mức Đề ra:",
+                                    style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                                  ),
                                   Text(
                                     "${_formatCurrency(authVm.caseOperatorExact)} VNĐ",
-                                    style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                                    style: AppStyles.bodyLarge.copyWith(
+                                      color: AppStyles.primaryAccent,
+                                      fontSize: 16.0 * scale,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -846,8 +851,13 @@ class _AuthViewState extends State<AuthView> {
                                   inactiveTrackColor: AppStyles.glassCardBorder,
                                   thumbColor: AppStyles.primaryAccent,
                                   overlayColor: AppStyles.primaryAccent.withAlpha(32),
+                                  trackHeight: 4.0 * scale,
+                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
+                                  overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
                                 ),
                                 child: Slider(
+                                  autofocus: true,
+                                  focusNode: _sliderExactFocus,
                                   value: authVm.caseOperatorExact,
                                   min: 0.0,
                                   max: authVm.maxTransactionAmount,
@@ -862,10 +872,16 @@ class _AuthViewState extends State<AuthView> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text("Hạn mức Tối thiểu (Min):", style: AppStyles.bodyMedium),
+                                  Text(
+                                    "Hạn mức Tối thiểu (Min):",
+                                    style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                                  ),
                                   Text(
                                     "${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
-                                    style: AppStyles.bodyLarge.copyWith(color: AppStyles.primaryAccent),
+                                    style: AppStyles.bodyLarge.copyWith(
+                                      color: AppStyles.primaryAccent,
+                                      fontSize: 16.0 * scale,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -875,8 +891,13 @@ class _AuthViewState extends State<AuthView> {
                                   inactiveTrackColor: AppStyles.glassCardBorder,
                                   thumbColor: AppStyles.primaryAccent,
                                   overlayColor: AppStyles.primaryAccent.withAlpha(32),
+                                  trackHeight: 4.0 * scale,
+                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
+                                  overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
                                 ),
                                 child: Slider(
+                                  autofocus: true,
+                                  focusNode: _sliderMinFocus,
                                   value: authVm.caseOperatorMin,
                                   min: 0.0,
                                   max: authVm.maxTransactionAmount,
@@ -886,16 +907,22 @@ class _AuthViewState extends State<AuthView> {
                                   },
                                 ),
                               ),
-                              const SizedBox(height: 8.0),
+                              SizedBox(height: 8.0 * scale),
 
                               // Max Slider
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text("Hạn mức Tối đa (Max):", style: AppStyles.bodyMedium),
+                                  Text(
+                                    "Hạn mức Tối đa (Max):",
+                                    style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                                  ),
                                   Text(
                                     "${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
-                                    style: AppStyles.bodyLarge.copyWith(color: AppStyles.secondaryAccent),
+                                    style: AppStyles.bodyLarge.copyWith(
+                                      color: AppStyles.secondaryAccent,
+                                      fontSize: 16.0 * scale,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -905,8 +932,12 @@ class _AuthViewState extends State<AuthView> {
                                   inactiveTrackColor: AppStyles.glassCardBorder,
                                   thumbColor: AppStyles.secondaryAccent,
                                   overlayColor: AppStyles.secondaryAccent.withAlpha(32),
+                                  trackHeight: 4.0 * scale,
+                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
+                                  overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
                                 ),
                                 child: Slider(
+                                  focusNode: _sliderMaxFocus,
                                   value: authVm.caseOperatorMax,
                                   min: 0.0,
                                   max: authVm.maxTransactionAmount,
@@ -917,24 +948,32 @@ class _AuthViewState extends State<AuthView> {
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 20.0),
+                            SizedBox(height: 20.0 * scale),
 
                             // Action confirm
                             SizedBox(
-                              height: 48.0,
+                              height: 48.0 * scale,
                               child: ElevatedButton(
+                                focusNode: _confirmButtonFocusNode,
                                 onPressed: () {
                                   authVm.confirmRangeAsync(() {
                                     mainVm.navigateTo(AppStage.conversation);
                                   });
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppStyles.successColor,
+                                  backgroundColor: _isConfirmButtonFocused ? AppStyles.successColor : AppStyles.successColor.withValues(alpha: 0.7),
                                   foregroundColor: AppStyles.backgroundEnd,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                                  elevation: 0.0,
+                                  side: _isConfirmButtonFocused ? BorderSide(color: Colors.white, width: 3.5 * scale) : null,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
+                                  elevation: _isConfirmButtonFocused ? 12.0 : 0.0,
                                 ),
-                                child: const Text("XÁC NHẬN VÀ BẮT ĐẦU PHỎNG VẤN", style: AppStyles.bodyLarge),
+                                child: Text(
+                                  "XÁC NHẬN VÀ BẮT ĐẦU PHỎNG VẤN",
+                                  style: AppStyles.bodyLarge.copyWith(
+                                    fontSize: 16.0 * scale,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ),
                           ],

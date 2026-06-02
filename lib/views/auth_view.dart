@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +22,7 @@ class AuthView extends StatefulWidget {
 }
 
 class _AuthViewState extends State<AuthView> {
+  final GlobalKey _previewBoundaryKey = GlobalKey();
   final TextEditingController _manualInputController = TextEditingController();
   MobileScannerController? _scannerController;
   bool _isDisposed = false;
@@ -30,6 +34,8 @@ class _AuthViewState extends State<AuthView> {
   bool _useCameraPackageFallback = false;
   bool _isCapturingFallback = false;
   Timer? _fallbackScanTimer;
+  bool _isTakePictureFocused = false;
+  bool _isGrabFrameFocused = false;
 
   @override
   void initState() {
@@ -37,11 +43,7 @@ class _AuthViewState extends State<AuthView> {
     _cameraService = context.read<ICameraService>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final authVm = context.read<AuthViewModel>();
-      _initAndStartScanner(
-        authVm.useFrontCamera ? CameraFacing.front : CameraFacing.back,
-        returnImage: true,
-      );
+      _triggerCameraPackageFallback();
     });
   }
 
@@ -95,7 +97,7 @@ class _AuthViewState extends State<AuthView> {
 
   void _triggerCameraPackageFallback() {
     if (_useCameraPackageFallback || _isDisposed) return;
-    debugPrint("[AuthView] All MobileScanner attempts failed. Falling back to camera package...");
+    debugPrint("[AuthView] Initializing standard camera package preview...");
     _useCameraPackageFallback = true;
     _fallbackScanTimer?.cancel();
     
@@ -114,106 +116,80 @@ class _AuthViewState extends State<AuthView> {
       if (mounted) {
         setState(() {});
       }
-      _startFallbackScanLoop();
     });
   }
 
-  void _startFallbackScanLoop() {
-    _fallbackScanTimer?.cancel();
-    _fallbackScanTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (_isDisposed || !_useCameraPackageFallback || _isCapturingFallback) return;
-      final authVm = context.read<AuthViewModel>();
-      if (authVm.isProcessing || authVm.isVerified) return;
-
-      await _triggerFallbackScan();
-    });
-  }
-
-  Future<CameraImage> _grabSingleFrame() async {
-    final completer = Completer<CameraImage>();
-    bool frameGrabbed = false;
-    
-    await _cameraService.controller!.startImageStream((image) {
-      if (!frameGrabbed) {
-        frameGrabbed = true;
-        completer.complete(image);
-        try {
-          _cameraService.controller!.stopImageStream();
-        } catch (e) {
-          debugPrint("[AuthView-Fallback] Error stopping image stream: $e");
-        }
+  Future<Uint8List?> _capturePreviewScreenshot() async {
+    try {
+      final boundary = _previewBoundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) {
+        debugPrint("[AuthView] Error: RenderRepaintBoundary not found");
+        return null;
       }
-    });
-    
-    return completer.future;
+      final ui.Image image = await boundary.toImage(pixelRatio: 1.5);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return null;
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      debugPrint("[AuthView] Error capturing screenshot from boundary: $e");
+      return null;
+    }
   }
 
-  img.Image _convertYUV420ToImage(CameraImage image) {
-    final int width = image.width;
-    final int height = image.height;
+  Future<void> _triggerTakePictureOnly() async {
+    if (_cameraService.controller == null || !_cameraService.controller!.value.isInitialized) return;
 
-    // Crop to the center 400x400 to keep it very fast and focus on the card/QR
-    final int cropWidth = 400;
-    final int cropHeight = 400;
-
-    final int centerX = width ~/ 2;
-    final int centerY = height ~/ 2;
-    final int xStart = (centerX - cropWidth ~/ 2).clamp(0, width);
-    final int yStart = (centerY - cropHeight ~/ 2).clamp(0, height);
-
-    final yPlane = image.planes[0];
-    final uPlane = image.planes[1];
-    final vPlane = image.planes[2];
-
-    final yBytes = yPlane.bytes;
-    final uBytes = uPlane.bytes;
-    final vBytes = vPlane.bytes;
-
-    final int yRowStride = yPlane.bytesPerRow;
-    final int yPixelStride = yPlane.bytesPerPixel ?? 1;
-
-    final int uRowStride = uPlane.bytesPerRow;
-    final int uPixelStride = uPlane.bytesPerPixel ?? 2;
-
-    final int vRowStride = vPlane.bytesPerRow;
-    final int vPixelStride = vPlane.bytesPerPixel ?? 2;
-
-    final outImage = img.Image(width: cropWidth, height: cropHeight);
-
-    for (int y = 0; y < cropHeight; y++) {
-      for (int x = 0; x < cropWidth; x++) {
-        final int srcX = xStart + x;
-        final int srcY = yStart + y;
-
-        if (srcX >= width || srcY >= height) continue;
-
-        final int yIndex = srcY * yRowStride + srcX * yPixelStride;
-        final int uvX = srcX ~/ 2;
-        final int uvY = srcY ~/ 2;
-
-        final int uIndex = uvY * uRowStride + uvX * uPixelStride;
-        final int vIndex = uvY * vRowStride + uvX * vPixelStride;
-
-        if (yIndex >= yBytes.length || uIndex >= uBytes.length || vIndex >= vBytes.length) {
-          continue;
-        }
-
-        final int yVal = yBytes[yIndex];
-        final int uVal = uBytes[uIndex];
-        final int vVal = vBytes[vIndex];
-
-        final int r = (yVal + 1.370705 * (vVal - 128)).toInt().clamp(0, 255);
-        final int g = (yVal - 0.337633 * (uVal - 128) - 0.698001 * (vVal - 128)).toInt().clamp(0, 255);
-        final int b = (yVal + 1.732446 * (uVal - 128)).toInt().clamp(0, 255);
-
-        outImage.setPixelRgb(x, y, r, g, b);
-      }
+    if (mounted) {
+      setState(() {
+        _isCapturingFallback = true;
+      });
     }
 
-    return outImage;
+    try {
+      debugPrint("[AuthView-TakePicture] Capturing photo via viewport screenshot...");
+      final pngBytes = await _capturePreviewScreenshot();
+      if (pngBytes == null) {
+        throw Exception("Failed to capture viewport screenshot");
+      }
+
+      final decodedImage = img.decodePng(pngBytes);
+      if (decodedImage == null) {
+        throw Exception("Failed to decode PNG bytes");
+      }
+
+      final jpegBytes = img.encodeJpg(decodedImage);
+
+      // Copy to public directory for verification with unique timestamp
+      try {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final downloadDir = Directory('/storage/emulated/0/Download');
+        if (await downloadDir.exists()) {
+          final targetFile = File('${downloadDir.path}/rotated_scan_photo_$timestamp.jpg');
+          await targetFile.writeAsBytes(jpegBytes);
+          debugPrint("[AuthView-TakePicture] EXPORT SUCCESS: Saved photo to: ${targetFile.path}");
+        } else {
+          final sdcardDir = Directory('/sdcard');
+          if (await sdcardDir.exists()) {
+            final targetFile = File('${sdcardDir.path}/rotated_scan_photo_$timestamp.jpg');
+            await targetFile.writeAsBytes(jpegBytes);
+            debugPrint("[AuthView-TakePicture] EXPORT SUCCESS: Saved photo to: ${targetFile.path}");
+          }
+        }
+      } catch (e) {
+        debugPrint("[AuthView-TakePicture] Export failed: $e");
+      }
+    } catch (e) {
+      debugPrint("[AuthView-TakePicture] Capture error: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCapturingFallback = false;
+        });
+      }
+    }
   }
 
-  Future<void> _triggerFallbackScan() async {
+  Future<void> _triggerGrabFrameAndScan() async {
     if (_cameraService.controller == null || !_cameraService.controller!.value.isInitialized) return;
 
     final authVm = context.read<AuthViewModel>();
@@ -226,19 +202,25 @@ class _AuthViewState extends State<AuthView> {
 
     String? tempFilePath;
     try {
-      debugPrint("[AuthView-Fallback] Grabbing preview frame using image stream...");
-      final CameraImage image = await _grabSingleFrame();
-      debugPrint("[AuthView-Fallback] Successfully grabbed frame of size ${image.width}x${image.height}");
-
-      // Convert YUV420 to RGB img.Image
-      debugPrint("[AuthView-Fallback] Converting YUV420 frame to RGB...");
-      img.Image rgbImage = _convertYUV420ToImage(image);
-
-      // Rotate if needed (sensor orientation / upside down)
-      if (_shouldRotate180()) {
-        debugPrint("[AuthView-Fallback] Rotating frame by 180 degrees...");
-        rgbImage = img.copyRotate(rgbImage, angle: 180);
+      debugPrint("[AuthView-Fallback] Grabbing frame via viewport screenshot...");
+      final pngBytes = await _capturePreviewScreenshot();
+      if (pngBytes == null) {
+        throw Exception("Failed to capture viewport screenshot");
       }
+
+      img.Image? rgbImage = img.decodePng(pngBytes);
+      if (rgbImage == null) {
+        throw Exception("Failed to decode PNG bytes");
+      }
+
+      // Crop to the center 400x400 to match the grab frame behavior
+      final int cropWidth = 400;
+      final int cropHeight = 400;
+      final int centerX = rgbImage.width ~/ 2;
+      final int centerY = rgbImage.height ~/ 2;
+      final int xStart = (centerX - cropWidth ~/ 2).clamp(0, rgbImage.width);
+      final int yStart = (centerY - cropHeight ~/ 2).clamp(0, rgbImage.height);
+      rgbImage = img.copyCrop(rgbImage, x: xStart, y: yStart, width: cropWidth, height: cropHeight);
 
       // Encode as JPEG
       final jpegBytes = img.encodeJpg(rgbImage);
@@ -255,19 +237,19 @@ class _AuthViewState extends State<AuthView> {
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         final downloadDir = Directory('/storage/emulated/0/Download');
         if (await downloadDir.exists()) {
-          final targetFile = File('${downloadDir.path}/rotated_scan_$timestamp.jpg');
+          final targetFile = File('${downloadDir.path}/rotated_scan_grab_$timestamp.jpg');
           await tempFile.copy(targetFile.path);
-          debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved rotated image to: ${targetFile.path}");
+          debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved grab image to: ${targetFile.path}");
         } else {
           final sdcardDir = Directory('/sdcard');
           if (await sdcardDir.exists()) {
-            final targetFile = File('${sdcardDir.path}/rotated_scan_$timestamp.jpg');
+            final targetFile = File('${sdcardDir.path}/rotated_scan_grab_$timestamp.jpg');
             await tempFile.copy(targetFile.path);
-            debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved rotated image to: ${targetFile.path}");
+            debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved grab image to: ${targetFile.path}");
           }
         }
       } catch (exportErr) {
-        debugPrint("[AuthView-Fallback] Export rotated image failed: $exportErr");
+        debugPrint("[AuthView-Fallback] Export grab image failed: $exportErr");
       }
 
       // 1. Analyze for Barcodes / QR Code using a temp instance of MobileScannerController
@@ -367,10 +349,13 @@ class _AuthViewState extends State<AuthView> {
                             _useCameraPackageFallback
                                 ? (_cameraService.controller != null &&
                                         _cameraService.controller!.value.isInitialized)
-                                    ? _buildCameraWidget(
-                                        AspectRatio(
-                                          aspectRatio: _cameraService.controller!.value.aspectRatio,
-                                          child: CameraPreview(_cameraService.controller!),
+                                    ? RepaintBoundary(
+                                        key: _previewBoundaryKey,
+                                        child: _buildCameraWidget(
+                                          AspectRatio(
+                                            aspectRatio: _cameraService.controller!.value.aspectRatio,
+                                            child: CameraPreview(_cameraService.controller!),
+                                          ),
                                         ),
                                       )
                                     : Container(
@@ -693,6 +678,71 @@ class _AuthViewState extends State<AuthView> {
                               ),
                               const SizedBox(height: 12.0),
                             ],
+
+                            // Grab Frame and Take Picture Manual Trigger Buttons
+                            Column(
+                              children: [
+                                Focus(
+                                  onFocusChange: (hasFocus) {
+                                    setState(() {
+                                      _isTakePictureFocused = hasFocus;
+                                    });
+                                  },
+                                  child: SizedBox(
+                                    height: 50.0,
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      autofocus: true,
+                                      onPressed: _isCapturingFallback ? null : () {
+                                        _triggerTakePictureOnly();
+                                      },
+                                      icon: const Icon(Icons.camera_alt),
+                                      label: const Text(
+                                        "CHỤP ẢNH (TAKE PICTURE)",
+                                        style: AppStyles.bodyLarge,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _isTakePictureFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.6),
+                                        foregroundColor: AppStyles.backgroundEnd,
+                                        side: _isTakePictureFocused ? const BorderSide(color: Colors.white, width: 3.5) : null,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                        elevation: _isTakePictureFocused ? 12.0 : 0.0,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12.0),
+                                Focus(
+                                  onFocusChange: (hasFocus) {
+                                    setState(() {
+                                      _isGrabFrameFocused = hasFocus;
+                                    });
+                                  },
+                                  child: SizedBox(
+                                    height: 50.0,
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      onPressed: _isCapturingFallback ? null : () {
+                                        _triggerGrabFrameAndScan();
+                                      },
+                                      icon: const Icon(Icons.qr_code_scanner),
+                                      label: const Text(
+                                        "QUÉT HÌNH (GRAB FRAME)",
+                                        style: AppStyles.bodyLarge,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _isGrabFrameFocused ? AppStyles.secondaryAccent : AppStyles.secondaryAccent.withValues(alpha: 0.6),
+                                        foregroundColor: AppStyles.backgroundEnd,
+                                        side: _isGrabFrameFocused ? const BorderSide(color: Colors.white, width: 3.5) : null,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                        elevation: _isGrabFrameFocused ? 12.0 : 0.0,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16.0),
 
                             // Manual CCCD Input
                             Row(

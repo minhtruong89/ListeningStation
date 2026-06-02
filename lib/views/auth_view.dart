@@ -392,12 +392,37 @@ class _AuthViewState extends State<AuthView> {
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // 1. Camera QR Scanner Viewport or loading indicator or fallback CameraPreview
-                            _useCameraPackageFallback
-                                ? (_cameraService.controller != null &&
-                                        _cameraService.controller!.value.isInitialized)
-                                    ? RepaintBoundary(
-                                        key: _previewBoundaryKey,
+                             // 1. Camera QR Scanner Viewport or success overlay
+                             authVm.isVerified
+                                 ? Container(
+                                     color: AppStyles.backgroundStart,
+                                     child: Center(
+                                       child: Column(
+                                         mainAxisAlignment: MainAxisAlignment.center,
+                                         children: [
+                                           Icon(
+                                             Icons.check_circle,
+                                             color: AppStyles.successColor,
+                                             size: 64.0 * scale,
+                                           ),
+                                           SizedBox(height: 16.0 * scale),
+                                           Text(
+                                             "Xác thực hoàn tất!",
+                                             style: AppStyles.bodyLarge.copyWith(
+                                               color: AppStyles.successColor,
+                                               fontWeight: FontWeight.bold,
+                                               fontSize: 18.0 * scale,
+                                             ),
+                                           ),
+                                         ],
+                                       ),
+                                     ),
+                                   )
+                                 : _useCameraPackageFallback
+                                     ? (_cameraService.controller != null &&
+                                             _cameraService.controller!.value.isInitialized)
+                                         ? RepaintBoundary(
+                                             key: _previewBoundaryKey,
                                         child: AspectRatio(
                                           aspectRatio: 1.5,
                                           child: ClipRect(

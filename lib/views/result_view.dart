@@ -57,7 +57,7 @@ class _ResultViewState extends State<ResultView> {
 
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
-    scale = 1.2; // 1.5
+    scale = 1.5; // 1.5 - 1.2
 
     // Automatically focus the top restart button when the result is calculated and ready
     if (resultVm.isResultReady && !_hasRequestedFocus) {

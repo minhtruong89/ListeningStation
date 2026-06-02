@@ -40,14 +40,6 @@ void main() async {
     authService,
   );
 
-  // Initialize async assets and local databases sequentially
-  await dataService.initializeAsync();
-  
-  // TODO TEST Call this to clear operator verifications at startup (uncomment to activate)
-  await dataService.clearOperatorVerificationsAsync();
-  
-  await llmService.initializeAsync();
-
   runApp(
     MultiProvider(
       providers: [
@@ -63,7 +55,7 @@ void main() async {
 
         // ViewModels Registration
         ChangeNotifierProvider<MainViewModel>(
-          create: (_) => MainViewModel(ruleEngineService, cameraService),
+          create: (_) => MainViewModel(ruleEngineService, cameraService, dataService, llmService),
         ),
         ChangeNotifierProvider<AuthViewModel>(
           create: (_) => AuthViewModel(

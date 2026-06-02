@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/rule_engine_service.dart';
 import '../services/camera_service.dart';
+import '../services/data_service.dart';
+import '../services/llm_service.dart';
 
 enum AppStage {
   splash,
@@ -13,13 +15,15 @@ enum AppStage {
 class MainViewModel extends ChangeNotifier {
   final IRuleEngineService _ruleEngine;
   final ICameraService _cameraService;
+  final IDataService _dataService;
+  final ILLMService _llmService;
   
   AppStage _currentStage = AppStage.splash;
   String _errorMessage = "";
   bool _isValidating = true;
   final List<String> _startupCheckLogs = [];
 
-  MainViewModel(this._ruleEngine, this._cameraService) {
+  MainViewModel(this._ruleEngine, this._cameraService, this._dataService, this._llmService) {
     runStartupChecks();
   }
 
@@ -34,7 +38,42 @@ class MainViewModel extends ChangeNotifier {
     _startupCheckLogs.clear();
     notifyListeners();
 
-    // 1. Request camera permission before checks
+    // 1. Initialize local database
+    _startupCheckLogs.add("SYS_DB - Đang khởi tạo CSDL...");
+    notifyListeners();
+    try {
+      await _dataService.initializeAsync();
+      await _dataService.clearOperatorVerificationsAsync();
+      _startupCheckLogs.removeLast();
+      _startupCheckLogs.add("SYS_DB - PASS (CSDL ok)");
+    } catch (e) {
+      _startupCheckLogs.removeLast();
+      _startupCheckLogs.add("SYS_DB - fail - CSDL lỗi: $e");
+      _errorMessage = "Không thể khởi tạo cơ sở dữ liệu";
+      _isValidating = false;
+      notifyListeners();
+      return;
+    }
+    notifyListeners();
+
+    // 2. Initialize LLM Service
+    _startupCheckLogs.add("SYS_AI - Đang khởi tạo AI...");
+    notifyListeners();
+    try {
+      await _llmService.initializeAsync();
+      _startupCheckLogs.removeLast();
+      _startupCheckLogs.add("SYS_AI - PASS (AI ok)");
+    } catch (e) {
+      _startupCheckLogs.removeLast();
+      _startupCheckLogs.add("SYS_AI - fail - AI lỗi: $e");
+      _errorMessage = "Không thể khởi tạo dịch vụ AI";
+      _isValidating = false;
+      notifyListeners();
+      return;
+    }
+    notifyListeners();
+
+    // 3. Request camera permission before checks
     try {
       final status = await Permission.camera.request();
       debugPrint("[MainViewModel] Camera permission status: $status");
@@ -45,7 +84,7 @@ class MainViewModel extends ChangeNotifier {
     }
 
     // Visual pause for splash aesthetics
-    await Future.delayed(const Duration(milliseconds: 1500));
+    await Future.delayed(const Duration(milliseconds: 800));
 
     final ruleResults = await _ruleEngine.evaluateSystemRulesAsync(
       onProgress: (result) {

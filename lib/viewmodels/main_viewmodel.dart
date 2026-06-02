@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
 import 'package:permission_handler/permission_handler.dart';
 import '../services/rule_engine_service.dart';
 import '../services/camera_service.dart';
@@ -108,7 +110,10 @@ class MainViewModel extends ChangeNotifier {
     } else {
       _currentStage = AppStage.splash; // Stay on splash showing error
     }
-    notifyListeners();
+
+    await testOutputLine();
+
+    //notifyListeners();
   }
 
   void navigateTo(AppStage stage) {
@@ -122,4 +127,88 @@ class MainViewModel extends ChangeNotifier {
     _isValidating = false;
     notifyListeners();
   }
+
+  Future<void> testOutputLine() async {
+
+    // STEP 1 - List all lines of audio out and micro recording detected
+    try {
+      if (Platform.isAndroid) {
+        const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+        final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
+        if (devices != null) {
+          final List<dynamic>? outputs = devices['outputs'];
+          final List<dynamic>? inputs = devices['inputs'];
+          debugPrint("[Hardware Check] Android Audio Outputs:");
+          if (outputs != null && outputs.isNotEmpty) {
+            for (var dev in outputs) {
+              debugPrint("  - $dev");
+            }
+          } else {
+            debugPrint("  None detected");
+          }
+
+          debugPrint("[Hardware Check] Android Microphone Inputs:");
+          if (inputs != null && inputs.isNotEmpty) {
+            for (var dev in inputs) {
+              debugPrint("  - $dev");
+            }
+          } else {
+            debugPrint("  None detected");
+          }
+        }
+      } else {
+        // Non-Android platforms (e.g. Windows development) fallback/mock
+        debugPrint("[Hardware Check] Non-Android Platform. Outputting mockup devices:");
+        debugPrint("  - Speakers (Virtual Output)");
+        debugPrint("  - Microphone (Virtual Input)");
+      }
+    } catch (e) {
+      debugPrint("[Hardware Check] Error detecting audio/micro devices: $e");
+    }
+
+    // STEP 2 - PLAY file mp3 at specific output targetName
+    try {
+      if (Platform.isAndroid) {
+        const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+        final String targetName = "AB13X";
+        
+        int targetIndex = -1;
+        String targetDeviceName = "Unknown Device";
+        
+        final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
+        if (devices != null) {
+          final List<dynamic>? outputs = devices['outputs'];
+          if (outputs != null) {
+            for (int i = 0; i < outputs.length; i++) {
+              final String name = outputs[i].toString();
+              if (name.toLowerCase().contains(targetName.toLowerCase())) {
+                targetIndex = i;
+                targetDeviceName = name;
+                break;
+              }
+            }
+          }
+        }
+
+        if (targetIndex != -1) {
+          final String path = "/sdcard/Eminem Ringtone.mp3";
+          debugPrint("[Hardware Check] Found matching device '$targetDeviceName' at index $targetIndex. Attempting to play mp3: $path");
+          final bool? success = await channel.invokeMethod<bool>('playMp3AtDevice', {
+            'filePath': path,
+            'deviceIndex': targetIndex,
+          });
+          debugPrint("[Hardware Check] Play mp3 success status: $success");
+        } else {
+          debugPrint("[Hardware Check] No output device containing '$targetName' was found. Skip playing.");
+        }
+      } else {
+        debugPrint("[Hardware Check] Play mp3 skipped: Not on Android platform.");
+      }
+    } catch (e) {
+      debugPrint("[Hardware Check] Error playing audio device at index: $e");
+    }
+
+
+  }
+
 }

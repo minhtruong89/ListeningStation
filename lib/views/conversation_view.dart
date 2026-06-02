@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../utils/styles.dart';
 import '../viewmodels/conversation_viewmodel.dart';
@@ -15,10 +16,170 @@ class _ConversationViewState extends State<ConversationView> {
   final TextEditingController _chatInputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  late final FocusNode _inputFocusNode;
+  late final FocusNode _muteButtonFocusNode;
+  late final FocusNode _demoButtonFocusNode;
+  late final FocusNode _finalizeButtonFocusNode;
+
+  // Focus nodes for popup buttons
+  late final FocusNode _closeSummaryButtonFocusNode;
+  late final FocusNode _cancelFinalizeButtonFocusNode;
+  late final FocusNode _confirmFinalizeButtonFocusNode;
+  late final FocusNode _goToResultButtonFocusNode;
+
+  bool _isMuteFocused = false;
+  bool _isDemoFocused = false;
+  bool _isFinalizeFocused = false;
+  bool _isInputFocused = false;
+
+  // Focus states for popup buttons
+  bool _isCloseSummaryFocused = false;
+  bool _isCancelFinalizeFocused = false;
+  bool _isConfirmFinalizeFocused = false;
+  bool _isGoToResultFocused = false;
+
+  // Track previous visibility states to detect changes
+  bool _prevIsSummaryVisible = false;
+  bool _prevIsFinalizeVisible = false;
+  bool _prevIsFinalizeConfirmed = false;
+
+  // Optimize scrolling triggers on weak Android Box hardware
+  int _lastMessageCount = 0;
+
+  KeyEventResult _handleInputKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _muteButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleMuteKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _inputFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _demoButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleDemoKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _inputFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _muteButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _finalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleFinalizeKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _inputFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _demoButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleCancelFinalizeKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _confirmFinalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleConfirmFinalizeKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _cancelFinalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _inputFocusNode = FocusNode(onKeyEvent: _handleInputKeyEvent);
+    _muteButtonFocusNode = FocusNode(onKeyEvent: _handleMuteKeyEvent);
+    _demoButtonFocusNode = FocusNode(onKeyEvent: _handleDemoKeyEvent);
+    _finalizeButtonFocusNode = FocusNode(onKeyEvent: _handleFinalizeKeyEvent);
+
+    _closeSummaryButtonFocusNode = FocusNode();
+    _cancelFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleCancelFinalizeKeyEvent);
+    _confirmFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleConfirmFinalizeKeyEvent);
+    _goToResultButtonFocusNode = FocusNode();
+
+    _inputFocusNode.addListener(() {
+      if (mounted) setState(() => _isInputFocused = _inputFocusNode.hasFocus);
+    });
+    _muteButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isMuteFocused = _muteButtonFocusNode.hasFocus);
+    });
+    _demoButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isDemoFocused = _demoButtonFocusNode.hasFocus);
+    });
+    _finalizeButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isFinalizeFocused = _finalizeButtonFocusNode.hasFocus);
+    });
+
+    _closeSummaryButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isCloseSummaryFocused = _closeSummaryButtonFocusNode.hasFocus);
+    });
+    _cancelFinalizeButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isCancelFinalizeFocused = _cancelFinalizeButtonFocusNode.hasFocus);
+    });
+    _confirmFinalizeButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isConfirmFinalizeFocused = _confirmFinalizeButtonFocusNode.hasFocus);
+    });
+    _goToResultButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isGoToResultFocused = _goToResultButtonFocusNode.hasFocus);
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _muteButtonFocusNode.requestFocus();
+      }
+    });
+  }
+
   @override
   void dispose() {
     _chatInputController.dispose();
     _scrollController.dispose();
+    _inputFocusNode.dispose();
+    _muteButtonFocusNode.dispose();
+    _demoButtonFocusNode.dispose();
+    _finalizeButtonFocusNode.dispose();
+    _closeSummaryButtonFocusNode.dispose();
+    _cancelFinalizeButtonFocusNode.dispose();
+    _confirmFinalizeButtonFocusNode.dispose();
+    _goToResultButtonFocusNode.dispose();
     super.dispose();
   }
 
@@ -34,15 +195,110 @@ class _ConversationViewState extends State<ConversationView> {
     });
   }
 
+  Future<bool?> _showExitConfirmationDialog(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppStyles.backgroundStart,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.0),
+          side: const BorderSide(color: AppStyles.glassCardBorder),
+        ),
+        title: const Text(
+          "XÁC NHẬN THOÁT",
+          style: TextStyle(color: AppStyles.textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          "Bạn có chắc chắn muốn thoát ứng dụng?",
+          style: TextStyle(color: AppStyles.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("HỦY", style: TextStyle(color: AppStyles.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(true);
+              SystemNavigator.pop();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppStyles.errorColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("THOÁT"),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ConversationViewModel>();
     final mainVm = context.read<MainViewModel>();
 
-    // Auto-scroll when messages are added
-    _scrollToBottom();
+    final Size screenSize = MediaQuery.of(context).size;
+    double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
+    scale = 1.5;
 
-    return Scaffold(
+    // Manage focus transitions based on popup visibility changes
+    if (vm.isSummaryVisible && !_prevIsSummaryVisible) {
+      _prevIsSummaryVisible = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _closeSummaryButtonFocusNode.requestFocus();
+      });
+    } else if (!vm.isSummaryVisible && _prevIsSummaryVisible) {
+      _prevIsSummaryVisible = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _muteButtonFocusNode.requestFocus();
+      });
+    }
+
+    if (vm.isFinalizeVisible && !_prevIsFinalizeVisible) {
+      _prevIsFinalizeVisible = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _confirmFinalizeButtonFocusNode.requestFocus();
+      });
+    } else if (!vm.isFinalizeVisible && _prevIsFinalizeVisible) {
+      _prevIsFinalizeVisible = false;
+      _prevIsFinalizeConfirmed = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _muteButtonFocusNode.requestFocus();
+      });
+    }
+
+    if (vm.isFinalizeConfirmed && !_prevIsFinalizeConfirmed) {
+      _prevIsFinalizeConfirmed = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _goToResultButtonFocusNode.requestFocus();
+      });
+    }
+
+    // Auto-scroll only when new messages are added to prevent loop-scrolling and stutter on TV Boxes
+    if (vm.messages.length > _lastMessageCount) {
+      _lastMessageCount = vm.messages.length;
+      _scrollToBottom();
+    }
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (vm.isSummaryVisible) {
+          vm.closeSummary();
+          return;
+        }
+        if (vm.isFinalizeVisible) {
+          vm.cancelFinalize();
+          return;
+        }
+        final shouldExit = await _showExitConfirmationDialog(context);
+        if (shouldExit == true) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: AppStyles.backgroundGradient,
@@ -52,7 +308,7 @@ class _ConversationViewState extends State<ConversationView> {
             children: [
               // Landscape split Row
               Padding(
-                padding: const EdgeInsets.all(24.0),
+                padding: EdgeInsets.all(24.0 * scale),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -61,63 +317,75 @@ class _ConversationViewState extends State<ConversationView> {
                       children: [
                         // Current system state indicator
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
-                          decoration: AppStyles.glassDecoration(radius: 8.0),
+                          padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 10.0 * scale),
+                          decoration: AppStyles.glassDecoration(radius: 8.0 * scale),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                width: 10.0,
-                                height: 10.0,
+                                width: 10.0 * scale,
+                                height: 10.0 * scale,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
                                 ),
                               ),
-                              const SizedBox(width: 8.0),
+                              SizedBox(width: 8.0 * scale),
                               Text(
                                 vm.isProcessing ? "Đang xử lý phản hồi..." : "Trợ lý hoạt động",
                                 style: TextStyle(
                                   color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
-                                  fontSize: 13.0,
+                                  fontSize: 13.0 * scale,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12.0),
+                        SizedBox(width: 12.0 * scale),
   
                         // Mute Speech button
                         ElevatedButton.icon(
+                          focusNode: _muteButtonFocusNode,
                           onPressed: () => vm.toggleMute(),
-                          icon: Icon(vm.isMuted ? Icons.volume_off : Icons.volume_up, size: 18.0),
-                          label: Text(vm.isMuted ? "BẬT ÂM" : "TẮT ÂM"),
+                          icon: Icon(vm.isMuted ? Icons.volume_off : Icons.volume_up, size: 18.0 * scale),
+                          label: Text(
+                            vm.isMuted ? "BẬT ÂM" : "TẮT ÂM",
+                            style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: vm.isMuted ? AppStyles.warningColor : AppStyles.primaryAccent,
+                            backgroundColor: vm.isMuted 
+                                ? AppStyles.warningColor 
+                                : (_isMuteFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.7)),
                             foregroundColor: AppStyles.backgroundEnd,
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
-                            elevation: 0.0,
+                            padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 14.0 * scale),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                            side: _isMuteFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
+                            elevation: _isMuteFocused ? 12.0 : 0.0,
                           ),
                         ),
-                        const SizedBox(width: 12.0),
+                        SizedBox(width: 12.0 * scale),
   
                         // Run Demo script button
                         ElevatedButton.icon(
+                          focusNode: _demoButtonFocusNode,
                           onPressed: () => vm.runDemoModeAsync(),
-                          icon: const Icon(Icons.slideshow, size: 18.0),
-                          label: const Text("CHẠY KỊCH BẢN DEMO"),
+                          icon: Icon(Icons.slideshow, size: 18.0 * scale),
+                          label: Text(
+                            "CHẠY KỊCH BẢN DEMO",
+                            style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppStyles.glassCardBg,
-                            foregroundColor: AppStyles.textPrimary,
+                            backgroundColor: _isDemoFocused ? AppStyles.primaryAccent : AppStyles.glassCardBg,
+                            foregroundColor: _isDemoFocused ? AppStyles.backgroundEnd : AppStyles.textPrimary,
                             surfaceTintColor: Colors.transparent,
-                            side: const BorderSide(color: AppStyles.glassCardBorder),
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
-                            elevation: 0.0,
+                            side: BorderSide(
+                              color: _isDemoFocused ? Colors.white : AppStyles.glassCardBorder,
+                              width: _isDemoFocused ? 3.0 * scale : 1.0,
+                            ),
+                            padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 14.0 * scale),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                            elevation: _isDemoFocused ? 12.0 : 0.0,
                           ),
                         ),
                         
@@ -125,37 +393,47 @@ class _ConversationViewState extends State<ConversationView> {
   
                         // Stop / Finalize Button
                         ElevatedButton.icon(
+                          focusNode: _finalizeButtonFocusNode,
                           onPressed: () => vm.showFinalizeAsync(),
-                          icon: const Icon(Icons.check_circle_outline, size: 18.0),
-                          label: const Text("KẾT THÚC HỘI THOẠI & PHÊ DUYỆT"),
+                          icon: Icon(Icons.check_circle_outline, size: 18.0 * scale),
+                          label: Text(
+                            "KẾT THÚC HỘI THOẠI & PHÊ DUYỆT",
+                            style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppStyles.errorColor,
+                            backgroundColor: _isFinalizeFocused ? AppStyles.errorColor : AppStyles.errorColor.withValues(alpha: 0.7),
                             foregroundColor: AppStyles.textPrimary,
-                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 14.0),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
-                            elevation: 0.0,
+                            padding: EdgeInsets.symmetric(horizontal: 20.0 * scale, vertical: 14.0 * scale),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                            side: _isFinalizeFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
+                            elevation: _isFinalizeFocused ? 12.0 : 0.0,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16.0),
+                    SizedBox(height: 16.0 * scale),
 
                     // FULL WIDTH: Chat dialogue bubble history stream
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: AppStyles.glassDecoration(),
+                        padding: EdgeInsets.all(16.0 * scale),
+                        decoration: AppStyles.glassDecoration(radius: 16.0 * scale),
                         child: Column(
                           children: [
-                            const Text("HỘI THOẠI TRỰC TIẾP", style: AppStyles.bodyLarge),
-                            const SizedBox(height: 12.0),
+                            Text(
+                              "HỘI THOẠI TRỰC TIẾP",
+                              style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                            ),
+                            SizedBox(height: 12.0 * scale),
                             
                             // Scrollable list of chat bubbles
                             Expanded(
                               child: vm.messages.isEmpty
-                                  ? const Center(
-                                      child: Text("Bắt đầu nói chuyện...", style: AppStyles.caption),
+                                  ? Center(
+                                      child: Text(
+                                        "Bắt đầu nói chuyện...",
+                                        style: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
+                                      ),
                                     )
                                   : ListView.builder(
                                       controller: _scrollController,
@@ -164,26 +442,29 @@ class _ConversationViewState extends State<ConversationView> {
                                         final msg = vm.messages[index];
                                         final isPatient = msg.sender == "Người cần giúp đỡ" || msg.sender == "Patient";
                                         final isSystem = msg.sender == "System";
- 
+  
                                         if (isSystem) {
                                           return Center(
                                             child: Container(
-                                              margin: const EdgeInsets.symmetric(vertical: 8.0),
-                                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+                                              margin: EdgeInsets.symmetric(vertical: 8.0 * scale),
+                                              padding: EdgeInsets.symmetric(horizontal: 12.0 * scale, vertical: 4.0 * scale),
                                               decoration: BoxDecoration(
                                                 color: Colors.black26,
-                                                borderRadius: BorderRadius.circular(12.0),
+                                                borderRadius: BorderRadius.circular(12.0 * scale),
                                               ),
-                                              child: Text(msg.content, style: AppStyles.caption),
+                                              child: Text(
+                                                msg.content,
+                                                style: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
+                                              ),
                                             ),
                                           );
                                         }
- 
+  
                                         return Align(
                                           alignment: isPatient ? Alignment.centerRight : Alignment.centerLeft,
                                           child: Container(
-                                            margin: const EdgeInsets.symmetric(vertical: 6.0),
-                                            padding: const EdgeInsets.all(14.0),
+                                            margin: EdgeInsets.symmetric(vertical: 6.0 * scale),
+                                            padding: EdgeInsets.all(14.0 * scale),
                                             constraints: BoxConstraints(
                                               maxWidth: MediaQuery.of(context).size.width * 0.55,
                                             ),
@@ -192,16 +473,16 @@ class _ConversationViewState extends State<ConversationView> {
                                                   ? AppStyles.secondaryAccent.withValues(alpha: 0.35)
                                                   : AppStyles.glassCardBorder.withValues(alpha: 0.2),
                                               borderRadius: BorderRadius.only(
-                                                topLeft: const Radius.circular(16.0),
-                                                topRight: const Radius.circular(16.0),
-                                                bottomLeft: isPatient ? const Radius.circular(16.0) : Radius.zero,
-                                                bottomRight: isPatient ? Radius.zero : const Radius.circular(16.0),
+                                                topLeft: Radius.circular(16.0 * scale),
+                                                topRight: Radius.circular(16.0 * scale),
+                                                bottomLeft: isPatient ? Radius.circular(16.0 * scale) : Radius.zero,
+                                                bottomRight: isPatient ? Radius.zero : Radius.circular(16.0 * scale),
                                               ),
                                               border: Border.all(
                                                 color: isPatient
                                                     ? AppStyles.secondaryAccent.withValues(alpha: 0.5)
                                                     : AppStyles.glassCardBorder,
-                                                width: 1.0,
+                                                width: 1.0 * scale,
                                               ),
                                             ),
                                             child: Column(
@@ -212,12 +493,16 @@ class _ConversationViewState extends State<ConversationView> {
                                                   style: AppStyles.caption.copyWith(
                                                     color: isPatient ? AppStyles.secondaryAccent : AppStyles.primaryAccent,
                                                     fontWeight: FontWeight.bold,
+                                                    fontSize: 12.0 * scale,
                                                   ),
                                                 ),
-                                                const SizedBox(height: 6.0),
+                                                SizedBox(height: 6.0 * scale),
                                                 Text(
                                                   msg.content,
-                                                  style: AppStyles.bodyLarge.copyWith(fontWeight: FontWeight.normal),
+                                                  style: AppStyles.bodyLarge.copyWith(
+                                                    fontWeight: FontWeight.normal,
+                                                    fontSize: 16.0 * scale,
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -226,21 +511,34 @@ class _ConversationViewState extends State<ConversationView> {
                                       },
                                     ),
                             ),
-                            const SizedBox(height: 12.0),
- 
+                            SizedBox(height: 12.0 * scale),
+  
                             // User text manual override input row
                             Row(
                               children: [
                                 Expanded(
-                                  child: Container(
-                                    decoration: AppStyles.glassDecoration(radius: 12.0),
-                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    decoration: AppStyles.glassDecoration(
+                                      radius: 12.0 * scale,
+                                      borderColor: _isInputFocused ? Colors.white : AppStyles.glassCardBorder,
+                                    ).copyWith(
+                                      boxShadow: _isInputFocused ? [
+                                        BoxShadow(
+                                          color: AppStyles.primaryAccent.withValues(alpha: 0.4),
+                                          blurRadius: 8.0 * scale,
+                                          spreadRadius: 2.0 * scale,
+                                        )
+                                      ] : null,
+                                    ),
+                                    padding: EdgeInsets.symmetric(horizontal: 16.0 * scale),
                                     child: TextField(
+                                      focusNode: _inputFocusNode,
                                       controller: _chatInputController,
-                                      style: AppStyles.bodyLarge,
-                                      decoration: const InputDecoration(
+                                      style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                      decoration: InputDecoration(
                                         hintText: "Nhập phản hồi của bệnh nhân...",
-                                        hintStyle: AppStyles.caption,
+                                        hintStyle: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
                                         border: InputBorder.none,
                                       ),
                                       onSubmitted: (val) {
@@ -253,9 +551,9 @@ class _ConversationViewState extends State<ConversationView> {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12.0),
+                                SizedBox(width: 12.0 * scale),
                                 SizedBox(
-                                  height: 50.0,
+                                  height: 50.0 * scale,
                                   child: ElevatedButton(
                                     onPressed: () {
                                       final val = _chatInputController.text;
@@ -268,10 +566,10 @@ class _ConversationViewState extends State<ConversationView> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppStyles.primaryAccent,
                                       foregroundColor: AppStyles.backgroundEnd,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
                                       elevation: 0.0,
                                     ),
-                                    child: const Icon(Icons.send),
+                                    child: Icon(Icons.send, size: 18.0 * scale),
                                   ),
                                 ),
                               ],
@@ -283,64 +581,76 @@ class _ConversationViewState extends State<ConversationView> {
                   ],
                 ),
               ),
-
+ 
               // OVERLAY DIALOG: Summary details popup
               if (vm.isSummaryVisible)
                 Container(
                   color: Colors.black87,
                   child: Center(
                     child: Container(
-                      width: 600.0,
-                      height: 450.0,
-                      padding: const EdgeInsets.all(28.0),
-                      decoration: AppStyles.glassDecoration(borderColor: AppStyles.primaryAccent),
+                      width: 600.0 * scale,
+                      height: 450.0 * scale,
+                      padding: EdgeInsets.all(28.0 * scale),
+                      decoration: AppStyles.glassDecoration(
+                        borderColor: AppStyles.primaryAccent,
+                        radius: 16.0 * scale,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Row(
+                              Row(
                                 children: [
-                                  Icon(Icons.assignment, color: AppStyles.primaryAccent, size: 28.0),
-                                  SizedBox(width: 12.0),
-                                  Text("TÓM TẮT THÔNG TIN HỘI THOẠI", style: AppStyles.titleLarge),
+                                  Icon(Icons.assignment, color: AppStyles.primaryAccent, size: 28.0 * scale),
+                                  SizedBox(width: 12.0 * scale),
+                                  Text(
+                                    "TÓM TẮT THÔNG TIN HỘI THOẠI",
+                                    style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
+                                  ),
                                 ],
                               ),
                               IconButton(
                                 onPressed: () => vm.closeSummary(),
-                                icon: const Icon(Icons.close, color: AppStyles.textSecondary),
+                                icon: Icon(Icons.close, color: AppStyles.textSecondary, size: 24.0 * scale),
                               )
                             ],
                           ),
-                          const SizedBox(height: 16.0),
+                          SizedBox(height: 16.0 * scale),
                           Expanded(
                             child: Container(
-                              padding: const EdgeInsets.all(16.0),
+                              padding: EdgeInsets.all(16.0 * scale),
                               decoration: BoxDecoration(
                                 color: Colors.black38,
-                                borderRadius: BorderRadius.circular(8.0),
+                                borderRadius: BorderRadius.circular(8.0 * scale),
                                 border: Border.all(color: AppStyles.glassCardBorder),
                               ),
                               child: SingleChildScrollView(
                                 child: Text(
                                   vm.summaryResult,
-                                  style: AppStyles.bodyMedium.copyWith(height: 1.5),
+                                  style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale, height: 1.5),
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 20.0),
+                          SizedBox(height: 20.0 * scale),
                           SizedBox(
-                            height: 45.0,
+                            height: 45.0 * scale,
                             child: ElevatedButton(
+                              focusNode: _closeSummaryButtonFocusNode,
                               onPressed: () => vm.closeSummary(),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AppStyles.primaryAccent,
+                                backgroundColor: _isCloseSummaryFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.7),
                                 foregroundColor: AppStyles.backgroundEnd,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                                side: _isCloseSummaryFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
+                                elevation: _isCloseSummaryFocused ? 12.0 : 0.0,
                               ),
-                              child: const Text("ĐÓNG TÓM TẮT"),
+                              child: Text(
+                                "ĐÓNG TÓM TẮT",
+                                style: TextStyle(fontSize: 14.0 * scale, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
                         ],
@@ -348,18 +658,19 @@ class _ConversationViewState extends State<ConversationView> {
                     ),
                   ),
                 ),
-
+ 
               // OVERLAY DIALOG: Finalize verification popup
               if (vm.isFinalizeVisible)
                 Container(
                   color: Colors.black87,
                   child: Center(
                     child: Container(
-                      width: 600.0,
-                      height: 480.0,
-                      padding: const EdgeInsets.all(28.0),
+                      width: 600.0 * scale,
+                      height: 480.0 * scale,
+                      padding: EdgeInsets.all(28.0 * scale),
                       decoration: AppStyles.glassDecoration(
                         borderColor: vm.isFinalizeConfirmed ? AppStyles.successColor : AppStyles.errorColor,
+                        radius: 16.0 * scale,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -372,89 +683,115 @@ class _ConversationViewState extends State<ConversationView> {
                                   Icon(
                                     vm.isFinalizeConfirmed ? Icons.task_alt : Icons.analytics_outlined,
                                     color: vm.isFinalizeConfirmed ? AppStyles.successColor : AppStyles.errorColor,
-                                    size: 28.0,
+                                    size: 28.0 * scale,
                                   ),
-                                  const SizedBox(width: 12.0),
-                                  const Text("TÓM TẮT HỘI THOẠI", style: AppStyles.titleLarge),
+                                  SizedBox(width: 12.0 * scale),
+                                  Text(
+                                    "TÓM TẮT HỘI THOẠI",
+                                    style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
+                                  ),
                                 ],
                               ),
                               if (!vm.isFinalizeConfirmed)
                                 IconButton(
                                   onPressed: () => vm.cancelFinalize(),
-                                  icon: const Icon(Icons.close, color: AppStyles.textSecondary),
+                                  icon: Icon(Icons.close, color: AppStyles.textSecondary, size: 24.0 * scale),
                                 )
                             ],
                           ),
-                          const SizedBox(height: 16.0),
+                          SizedBox(height: 16.0 * scale),
                           Expanded(
                             child: Container(
-                              padding: const EdgeInsets.all(16.0),
+                              padding: EdgeInsets.all(16.0 * scale),
                               decoration: BoxDecoration(
                                 color: Colors.black38,
-                                borderRadius: BorderRadius.circular(8.0),
+                                borderRadius: BorderRadius.circular(8.0 * scale),
                                 border: Border.all(color: AppStyles.glassCardBorder),
                               ),
                               child: SingleChildScrollView(
                                 child: Text(
                                   vm.finalizeResult,
-                                  style: AppStyles.bodyMedium.copyWith(height: 1.5),
+                                  style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale, height: 1.5),
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24.0),
-
+                          SizedBox(height: 24.0 * scale),
+ 
                           if (!vm.isFinalizeConfirmed) ...[
                             // Cancel or Confirm
                             Row(
                               children: [
                                 Expanded(
                                   child: SizedBox(
-                                    height: 50.0,
+                                    height: 50.0 * scale,
                                     child: OutlinedButton(
+                                      focusNode: _cancelFinalizeButtonFocusNode,
                                       onPressed: () => vm.cancelFinalize(),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: AppStyles.textPrimary,
-                                        side: const BorderSide(color: AppStyles.glassCardBorder),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                        side: BorderSide(
+                                          color: _isCancelFinalizeFocused ? Colors.white : AppStyles.glassCardBorder,
+                                          width: _isCancelFinalizeFocused ? 3.0 * scale : 1.0,
+                                        ),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                                        backgroundColor: _isCancelFinalizeFocused ? AppStyles.glassCardBorder : Colors.transparent,
                                       ),
-                                      child: const Text("HỦY - TIẾP TỤC NÓI CHUYỆN"),
+                                      child: Text(
+                                        "HỦY - TIẾP TỤC NÓI CHUYỆN",
+                                        style: TextStyle(fontSize: 14.0 * scale, fontWeight: FontWeight.bold),
+                                      ),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 16.0),
+                                SizedBox(width: 16.0 * scale),
                                 Expanded(
                                   child: SizedBox(
-                                    height: 50.0,
+                                    height: 50.0 * scale,
                                     child: ElevatedButton(
+                                      focusNode: _confirmFinalizeButtonFocusNode,
                                       onPressed: () => vm.confirmFinalize(),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppStyles.successColor,
+                                        backgroundColor: _isConfirmFinalizeFocused ? AppStyles.successColor : AppStyles.successColor.withValues(alpha: 0.7),
                                         foregroundColor: AppStyles.backgroundEnd,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                                        side: _isConfirmFinalizeFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
+                                        elevation: _isConfirmFinalizeFocused ? 12.0 : 0.0,
                                       ),
-                                      child: const Text("XÁC NHẬN KẾT THÚC"),
+                                      child: Text(
+                                        "XÁC NHẬN KẾT THÚC",
+                                        style: TextStyle(fontSize: 14.0 * scale, fontWeight: FontWeight.bold),
+                                      ),
                                     ),
                                   ),
                                 ),
                               ],
-                            )
+                            ),
                           ] else ...[
                             // Go to result screen
                             SizedBox(
-                              height: 50.0,
+                              height: 50.0 * scale,
                               child: ElevatedButton(
+                                focusNode: _goToResultButtonFocusNode,
                                 onPressed: () {
                                   vm.navigateToResult(() {
                                     mainVm.navigateTo(AppStage.result);
                                   });
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppStyles.primaryAccent,
+                                  backgroundColor: _isGoToResultFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.7),
                                   foregroundColor: AppStyles.backgroundEnd,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                                  side: _isGoToResultFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
+                                  elevation: _isGoToResultFocused ? 12.0 : 0.0,
                                 ),
-                                child: const Text("ĐI ĐẾN TRANG KẾT QUẢ", style: AppStyles.bodyLarge),
+                                child: Text(
+                                  "ĐI ĐẾN TRANG KẾT QUẢ",
+                                  style: AppStyles.bodyLarge.copyWith(
+                                    fontSize: 16.0 * scale,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ),
                           ]
@@ -467,6 +804,7 @@ class _ConversationViewState extends State<ConversationView> {
           ),
         ),
       ),
+    ),
     );
   }
 }

@@ -238,6 +238,13 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> _verifyAndNavigateAsync(String rawData) async {
     if (_isVerified) return;
 
+    // Refresh required count dynamically to avoid initialization race conditions with downloaded rule_engine.json
+    final bool isInside = _authService.isInsideWorkingHours();
+    _requiredCount = await _ruleEngineService.getRequiredOperatorCountAsync(isInside);
+    final String statusLabel = isInside ? "Trong giờ hành chính" : "Ngoài giờ hành chính";
+    _verificationInfoText = "$statusLabel - Số người bảo chứng cần xác thực: $_requiredCount";
+    notifyListeners();
+
     final op = await _authService.authenticateAsync(rawData);
     if (op != null) {
       _ruleStatusText = "";

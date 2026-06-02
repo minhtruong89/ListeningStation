@@ -50,6 +50,10 @@ class _AuthViewState extends State<AuthView> {
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        if (node == _sliderExactFocus || node == _sliderMinFocus) {
+          // Topmost elements in popup: consume to prevent losing focus
+          return KeyEventResult.handled;
+        }
         node.previousFocus();
         return KeyEventResult.handled;
       }
@@ -93,7 +97,7 @@ class _AuthViewState extends State<AuthView> {
           return KeyEventResult.handled;
         }
         if (key == LogicalKeyboardKey.arrowDown) {
-          node.nextFocus();
+          // Bottommost element in popup: consume to prevent losing focus
           return KeyEventResult.handled;
         }
       }
@@ -372,9 +376,11 @@ class _AuthViewState extends State<AuthView> {
           child: Stack(
             children: [
               // Landscape Side-by-Side Split View
-              Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Row(
+              Focus(
+                descendantsAreFocusable: !authVm.isRangePopupVisible,
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // LEFT COLUMN: Viewfinder & Automatic Scanner
@@ -885,6 +891,7 @@ class _AuthViewState extends State<AuthView> {
                   ],
                 ),
               ),
+            ),
 
               // OVERLAY DIALOG: Financial limits sliding inputs popup
               if (authVm.isRangePopupVisible)
@@ -909,7 +916,7 @@ class _AuthViewState extends State<AuthView> {
                                 Icon(Icons.tune, color: AppStyles.primaryAccent, size: 24.0 * scale),
                                 SizedBox(width: 12.0 * scale),
                                 Text(
-                                  "THIẾT LẬP HẠN MỨC CA PHÊ DUYỆT",
+                                  "THIẾT LẬP HẠN MỨC PHÊ DUYỆT",
                                   style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
                                 ),
                               ],

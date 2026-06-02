@@ -240,7 +240,7 @@ class _ConversationViewState extends State<ConversationView> {
 
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
-    scale = 1.5;
+    scale = 1.2; // 1.5
 
     // Manage focus transitions based on popup visibility changes
     if (vm.isSummaryVisible && !_prevIsSummaryVisible) {
@@ -666,7 +666,7 @@ class _ConversationViewState extends State<ConversationView> {
                   child: Center(
                     child: Container(
                       width: 600.0 * scale,
-                      height: 480.0 * scale,
+                      height: 450.0 * scale,
                       padding: EdgeInsets.all(28.0 * scale),
                       decoration: AppStyles.glassDecoration(
                         borderColor: vm.isFinalizeConfirmed ? AppStyles.successColor : AppStyles.errorColor,

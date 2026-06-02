@@ -10,6 +10,8 @@ import '../services/qr_service.dart';
 import '../services/rule_engine_service.dart';
 import '../services/speech_service.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 class VerifiedOperatorDisplayItem {
   final String idNumber;
   final String displayName;
@@ -48,6 +50,7 @@ class AuthViewModel extends ChangeNotifier {
   final List<Operator> _verifiedOperators = [];
   int _requiredCount = 1;
   bool _isProcessing = false;
+  int _cameraRotationQuarterTurns = 0;
 
   AuthViewModel(
     this._cameraService,
@@ -60,6 +63,20 @@ class AuthViewModel extends ChangeNotifier {
     this._speechService,
   ) {
     initializeAsync();
+  }
+
+  int get cameraRotationQuarterTurns => _cameraRotationQuarterTurns;
+
+  void cycleCameraRotation() async {
+    _cameraRotationQuarterTurns = (_cameraRotationQuarterTurns + 1) % 4;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('camera_rotation_quarter_turns', _cameraRotationQuarterTurns);
+      debugPrint("[AuthViewModel] Saved camera rotation: $_cameraRotationQuarterTurns");
+    } catch (e) {
+      debugPrint("Error saving camera rotation: $e");
+    }
   }
 
   bool get isVerified => _isVerified;
@@ -104,6 +121,15 @@ class AuthViewModel extends ChangeNotifier {
   bool get isProcessing => _isProcessing;
 
   Future<void> initializeAsync() async {
+    // Load stored camera rotation setting
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _cameraRotationQuarterTurns = prefs.getInt('camera_rotation_quarter_turns') ?? 0;
+      debugPrint("[AuthViewModel] Loaded camera rotation: $_cameraRotationQuarterTurns");
+    } catch (e) {
+      debugPrint("Error loading camera rotation: $e");
+    }
+
     final bool isInside = _authService.isInsideWorkingHours();
     _requiredCount = await _ruleEngineService.getRequiredOperatorCountAsync(isInside);
     final String statusLabel = isInside ? "Trong giờ hành chính" : "Ngoài giờ hành chính";

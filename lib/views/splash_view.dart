@@ -11,7 +11,7 @@ class SplashView extends StatelessWidget {
     final vm = context.watch<MainViewModel>();
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
-    scale = 1.9;
+    scale = 1.4; // 1.9
 
     return Scaffold(
       body: Container(

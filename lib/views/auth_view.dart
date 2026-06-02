@@ -35,6 +35,8 @@ class _AuthViewState extends State<AuthView> {
   bool _isCapturingFallback = false;
   Timer? _fallbackScanTimer;
   bool _isConfirmButtonFocused = false;
+  late final FocusNode _rotateCameraFocusNode;
+  bool _isRotateCameraFocused = false;
 
   late final FocusNode _sliderExactFocus;
   late final FocusNode _sliderMinFocus;
@@ -63,6 +65,14 @@ class _AuthViewState extends State<AuthView> {
     _sliderExactFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
     _sliderMinFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
     _sliderMaxFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
+    _rotateCameraFocusNode = FocusNode();
+    _rotateCameraFocusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isRotateCameraFocused = _rotateCameraFocusNode.hasFocus;
+        });
+      }
+    });
     _confirmButtonFocusNode = FocusNode(onKeyEvent: (node, event) {
       if (event is KeyDownEvent) {
         final key = event.logicalKey;
@@ -99,6 +109,7 @@ class _AuthViewState extends State<AuthView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _triggerCameraPackageFallback();
+      _rotateCameraFocusNode.requestFocus();
     });
   }
 
@@ -317,10 +328,12 @@ class _AuthViewState extends State<AuthView> {
     return firstCam.lensDirection == CameraLensDirection.external && firstCam.sensorOrientation == 90;
   }
 
-  Widget _buildCameraWidget(Widget cameraWidget) {
-    if (_shouldRotate180()) {
+  Widget _buildCameraWidget(Widget cameraWidget, int manualQuarterTurns) {
+    int baseTurns = _shouldRotate180() ? 2 : 0;
+    int totalTurns = (baseTurns + manualQuarterTurns) % 4;
+    if (totalTurns > 0) {
       return RotatedBox(
-        quarterTurns: 2, // 180 degrees
+        quarterTurns: totalTurns,
         child: cameraWidget,
       );
     }
@@ -336,6 +349,7 @@ class _AuthViewState extends State<AuthView> {
     _sliderExactFocus.dispose();
     _sliderMinFocus.dispose();
     _sliderMaxFocus.dispose();
+    _rotateCameraFocusNode.dispose();
     _confirmButtonFocusNode.dispose();
     _cameraService.stopAsync();
     super.dispose();
@@ -347,7 +361,7 @@ class _AuthViewState extends State<AuthView> {
     final mainVm = context.read<MainViewModel>();
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
-    scale = 1.5;
+    scale = 1.2; // 1.5
 
     return Scaffold(
       body: Container(
@@ -378,10 +392,20 @@ class _AuthViewState extends State<AuthView> {
                                         _cameraService.controller!.value.isInitialized)
                                     ? RepaintBoundary(
                                         key: _previewBoundaryKey,
-                                        child: _buildCameraWidget(
-                                          AspectRatio(
-                                            aspectRatio: _cameraService.controller!.value.aspectRatio,
-                                            child: CameraPreview(_cameraService.controller!),
+                                        child: AspectRatio(
+                                          aspectRatio: 1.5,
+                                          child: ClipRect(
+                                            child: FittedBox(
+                                              fit: BoxFit.cover,
+                                              child: _buildCameraWidget(
+                                                SizedBox(
+                                                  width: _cameraService.controller!.value.previewSize?.width ?? 1280.0,
+                                                  height: _cameraService.controller!.value.previewSize?.height ?? 720.0,
+                                                  child: CameraPreview(_cameraService.controller!),
+                                                ),
+                                                authVm.cameraRotationQuarterTurns,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       )
@@ -410,111 +434,124 @@ class _AuthViewState extends State<AuthView> {
                                           ],
                                         ),
                                       )
-                                    : _buildCameraWidget(
-                                        MobileScanner(
-                                          controller: _scannerController!,
-                                          onDetect: (capture) {
-                                            // 1. Process Barcodes / QR Code
-                                            final List<Barcode> barcodes = capture.barcodes;
-                                            for (final barcode in barcodes) {
-                                              if (barcode.rawValue != null) {
-                                                authVm.handleQrScanned(barcode.rawValue!);
-                                                break;
-                                              }
-                                            }
+                                    : AspectRatio(
+                                        aspectRatio: 1.5,
+                                        child: ClipRect(
+                                          child: FittedBox(
+                                            fit: BoxFit.cover,
+                                            child: _buildCameraWidget(
+                                              SizedBox(
+                                                width: 1280.0,
+                                                height: 720.0,
+                                                child: MobileScanner(
+                                                  controller: _scannerController!,
+                                                  onDetect: (capture) {
+                                                    // 1. Process Barcodes / QR Code
+                                                    final List<Barcode> barcodes = capture.barcodes;
+                                                    for (final barcode in barcodes) {
+                                                      if (barcode.rawValue != null) {
+                                                        authVm.handleQrScanned(barcode.rawValue!);
+                                                        break;
+                                                      }
+                                                    }
 
-                                            // 2. Process OCR from current image frame on-the-fly (only if image data is returned)
-                                            final image = capture.image;
-                                            final size = capture.size;
-                                            if (image != null) {
-                                              try {
-                                                final inputImage = InputImage.fromBytes(
-                                                  bytes: image,
-                                                  metadata: InputImageMetadata(
-                                                    size: Size(size.width, size.height),
-                                                    rotation: InputImageRotation.rotation0deg, // standard camera frame angle
-                                                    format: InputImageFormat.nv21,
-                                                    bytesPerRow: size.width.toInt(),
-                                                  ),
-                                                );
-                                                authVm.handleOcrImageFrame(inputImage);
-                                              } catch (e) {
-                                                debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
-                                              }
-                                            }
-                                          },
-                                          errorBuilder: (context, error, child) {
-                                            debugPrint("[AuthView] MobileScanner error: ${error.errorCode}, code: ${error.errorDetails?.code}, msg: ${error.errorDetails?.message}, details: ${error.errorDetails?.details}");
-                                            
-                                            // If we get genericError during live streaming and returnImage is true,
-                                            // try falling back to returnImage: false (no raw frame byte delivery to Flutter)
-                                            if (error.errorCode == MobileScannerErrorCode.genericError) {
-                                              if (!_hasAttemptedNoImageFallback) {
-                                                _hasAttemptedNoImageFallback = true;
-                                                final useFront = authVm.useFrontCamera;
-                                                WidgetsBinding.instance.addPostFrameCallback((_) async {
-                                                  if (_isDisposed) return;
-                                                  debugPrint("[AuthView] Caught genericError. Re-initializing with returnImage = false...");
-                                                  if (_scannerController != null) {
-                                                    await _scannerController!.dispose();
-                                                    setState(() {
-                                                      _scannerController = null;
-                                                    });
-                                                  }
-                                                  await _initAndStartScanner(
-                                                    useFront ? CameraFacing.front : CameraFacing.back,
-                                                    returnImage: false,
-                                                  );
-                                                });
-                                                
-                                                return Container(
-                                                  color: AppStyles.backgroundStart,
-                                                  child: const Center(
-                                                    child: CircularProgressIndicator(
-                                                      color: AppStyles.primaryAccent,
-                                                    ),
-                                                  ),
-                                                );
-                                              } else if (!_useCameraPackageFallback) {
-                                                _triggerCameraPackageFallback();
-                                                return Container(
-                                                  color: AppStyles.backgroundStart,
-                                                  child: const Center(
-                                                    child: CircularProgressIndicator(
-                                                      color: AppStyles.primaryAccent,
-                                                    ),
-                                                  ),
-                                                );
-                                              }
-                                            }
+                                                    // 2. Process OCR from current image frame on-the-fly (only if image data is returned)
+                                                    final image = capture.image;
+                                                    final size = capture.size;
+                                                    if (image != null) {
+                                                      try {
+                                                        final inputImage = InputImage.fromBytes(
+                                                          bytes: image,
+                                                          metadata: InputImageMetadata(
+                                                            size: Size(size.width, size.height),
+                                                            rotation: InputImageRotation.rotation0deg, // standard camera frame angle
+                                                            format: InputImageFormat.nv21,
+                                                            bytesPerRow: size.width.toInt(),
+                                                          ),
+                                                        );
+                                                        authVm.handleOcrImageFrame(inputImage);
+                                                      } catch (e) {
+                                                        debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
+                                                      }
+                                                    }
+                                                  },
+                                                  errorBuilder: (context, error, child) {
+                                                    debugPrint("[AuthView] MobileScanner error: ${error.errorCode}, code: ${error.errorDetails?.code}, msg: ${error.errorDetails?.message}, details: ${error.errorDetails?.details}");
+                                                    
+                                                    // If we get genericError during live streaming and returnImage is true,
+                                                    // try falling back to returnImage: false (no raw frame byte delivery to Flutter)
+                                                    if (error.errorCode == MobileScannerErrorCode.genericError) {
+                                                      if (!_hasAttemptedNoImageFallback) {
+                                                        _hasAttemptedNoImageFallback = true;
+                                                        final useFront = authVm.useFrontCamera;
+                                                        WidgetsBinding.instance.addPostFrameCallback((_) async {
+                                                          if (_isDisposed) return;
+                                                          debugPrint("[AuthView] Caught genericError. Re-initializing with returnImage = false...");
+                                                          if (_scannerController != null) {
+                                                            await _scannerController!.dispose();
+                                                            setState(() {
+                                                              _scannerController = null;
+                                                            });
+                                                          }
+                                                          await _initAndStartScanner(
+                                                            useFront ? CameraFacing.front : CameraFacing.back,
+                                                            returnImage: false,
+                                                          );
+                                                        });
+                                                        
+                                                        return Container(
+                                                          color: AppStyles.backgroundStart,
+                                                          child: const Center(
+                                                            child: CircularProgressIndicator(
+                                                              color: AppStyles.primaryAccent,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      } else if (!_useCameraPackageFallback) {
+                                                        _triggerCameraPackageFallback();
+                                                        return Container(
+                                                          color: AppStyles.backgroundStart,
+                                                          child: const Center(
+                                                            child: CircularProgressIndicator(
+                                                              color: AppStyles.primaryAccent,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
 
-                                            return Container(
-                                              color: AppStyles.backgroundStart,
-                                              child: Padding(
-                                                padding: const EdgeInsets.all(16.0),
-                                                child: Column(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    const Icon(Icons.videocam_off, color: AppStyles.errorColor, size: 48.0),
-                                                    const SizedBox(height: 12.0),
-                                                    Text(
-                                                      "Lỗi camera: ${error.errorCode.name}",
-                                                      style: AppStyles.bodyMedium.copyWith(color: AppStyles.errorColor, fontWeight: FontWeight.bold),
-                                                      textAlign: TextAlign.center,
-                                                    ),
-                                                    if (error.errorDetails != null) ...[
-                                                      const SizedBox(height: 8.0),
-                                                      Text(
-                                                        "Code: ${error.errorDetails?.code}\nMsg: ${error.errorDetails?.message}\nDetails: ${error.errorDetails?.details}",
-                                                        style: AppStyles.caption.copyWith(color: AppStyles.textSecondary),
-                                                        textAlign: TextAlign.center,
+                                                    return Container(
+                                                      color: AppStyles.backgroundStart,
+                                                      child: Padding(
+                                                        padding: const EdgeInsets.all(16.0),
+                                                        child: Column(
+                                                          mainAxisAlignment: MainAxisAlignment.center,
+                                                          children: [
+                                                            const Icon(Icons.videocam_off, color: AppStyles.errorColor, size: 48.0),
+                                                            const SizedBox(height: 12.0),
+                                                            Text(
+                                                              "Lỗi camera: ${error.errorCode.name}",
+                                                              style: AppStyles.bodyMedium.copyWith(color: AppStyles.errorColor, fontWeight: FontWeight.bold),
+                                                              textAlign: TextAlign.center,
+                                                            ),
+                                                            if (error.errorDetails != null) ...[
+                                                              const SizedBox(height: 8.0),
+                                                              Text(
+                                                                "Code: ${error.errorDetails?.code}\nMsg: ${error.errorDetails?.message}\nDetails: ${error.errorDetails?.details}",
+                                                                style: AppStyles.caption.copyWith(color: AppStyles.textSecondary),
+                                                                textAlign: TextAlign.center,
+                                                              ),
+                                                            ],
+                                                          ],
+                                                        ),
                                                       ),
-                                                    ],
-                                                  ],
+                                                    );
+                                                  },
                                                 ),
                                               ),
-                                            );
-                                          },
+                                              authVm.cameraRotationQuarterTurns,
+                                            ),
+                                          ),
                                         ),
                                       ),
 
@@ -595,6 +632,63 @@ class _AuthViewState extends State<AuthView> {
                                   ),
                                 ),
                               ),
+
+                            // 6. Camera rotation toggle button (floating overlay)
+                            Positioned(
+                              top: 16.0 * scale,
+                              right: 16.0 * scale,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  focusNode: _rotateCameraFocusNode,
+                                  onTap: () {
+                                    authVm.cycleCameraRotation();
+                                  },
+                                  borderRadius: BorderRadius.circular(20.0 * scale),
+                                  child: Container(
+                                    padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 10.0 * scale),
+                                    decoration: BoxDecoration(
+                                      color: _isRotateCameraFocused 
+                                          ? AppStyles.primaryAccent 
+                                          : Colors.black54,
+                                      borderRadius: BorderRadius.circular(20.0 * scale),
+                                      border: Border.all(
+                                        color: _isRotateCameraFocused ? Colors.white : AppStyles.primaryAccent.withValues(alpha: 0.5),
+                                        width: _isRotateCameraFocused ? 2.5 * scale : 1.0,
+                                      ),
+                                      boxShadow: _isRotateCameraFocused
+                                          ? [
+                                              BoxShadow(
+                                                color: AppStyles.primaryAccent.withValues(alpha: 0.6),
+                                                blurRadius: 12.0 * scale,
+                                                spreadRadius: 2.0 * scale,
+                                              )
+                                            ]
+                                          : null,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.rotate_right, 
+                                          color: _isRotateCameraFocused ? AppStyles.backgroundEnd : AppStyles.primaryAccent, 
+                                          size: 18.0 * scale,
+                                        ),
+                                        SizedBox(width: 6.0 * scale),
+                                        Text(
+                                          "Xoay Camera",
+                                          style: TextStyle(
+                                            color: _isRotateCameraFocused ? AppStyles.backgroundEnd : AppStyles.textPrimary,
+                                            fontSize: 12.0 * scale,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),

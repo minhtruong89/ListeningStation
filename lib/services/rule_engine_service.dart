@@ -12,6 +12,7 @@ import 'auth_service.dart';
 import 'camera_service.dart';
 import 'data_service.dart';
 import 'llm_service.dart';
+import 'speech_service.dart';
 
 class RuleCheckResult {
   final String id;
@@ -137,7 +138,7 @@ class RuleEngineService implements IRuleEngineService {
               isValid = await _checkMicrophoneDeviceAsync();
               break;
             case "SYS005":
-              isValid = true; // SYS005 - Cassette door closed (always true for mobile mock)
+              isValid = await _checkUartSendTextNoAsync();
               break;
             case "SYS006":
               isValid = File(join(_dataDir, 'listening_station.db')).existsSync();
@@ -435,6 +436,68 @@ class RuleEngineService implements IRuleEngineService {
       }
     } catch (e) {
       debugPrint("[SYS004] Error checking microphone device: $e");
+      return false;
+    }
+  }
+
+  Future<bool> _checkUartSendTextNoAsync() async {
+    try {
+      if (Platform.isAndroid) {
+        const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+        debugPrint("[SYS005] Scanning for USB Serial devices...");
+        
+        final List<dynamic>? serialDevices = await channel.invokeMethod<List<dynamic>>('getUsbSerialDevices');
+        if (serialDevices != null && serialDevices.isNotEmpty) {
+          final Map<dynamic, dynamic> firstDevice = serialDevices.first as Map<dynamic, dynamic>;
+          final String name = firstDevice['name'] ?? "Unknown";
+          final int vid = firstDevice['vendorId'] ?? 0;
+          final int pid = firstDevice['productId'] ?? 0;
+          bool hasPerm = firstDevice['hasPermission'] ?? false;
+          
+          if (!hasPerm) {
+            debugPrint("[SYS005] USB Permission missing. Requesting permission for $name...");
+            final bool? granted = await channel.invokeMethod<bool>('requestUsbPermission', {
+              'vendorId': vid,
+              'productId': pid,
+            });
+            hasPerm = granted ?? false;
+          }
+
+          if (!hasPerm) {
+            debugPrint("[SYS005] Cannot test UART: Permission denied.");
+            return false;
+          }
+
+          debugPrint("[SYS005] Running write/read UART test with 'NO'...");
+          final Map<dynamic, dynamic>? testResult = await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
+            'vendorId': vid,
+            'productId': pid,
+            'baudRate': 9600,
+            'testMessage': "NO\n",
+          });
+          
+          if (testResult != null) {
+            final bool success = testResult['success'] ?? false;
+            final String msg = testResult['message'] ?? "";
+            debugPrint("[SYS005] UART test success: $success ($msg)");
+            if (success) {
+              SpeechService.uartVid = vid;
+              SpeechService.uartPid = pid;
+              debugPrint("[SYS005] Cached UART device for SpeechService: VID=0x${vid.toRadixString(16).toUpperCase()}, PID=0x${pid.toRadixString(16).toUpperCase()}");
+            }
+            return success;
+          }
+          return false;
+        } else {
+          debugPrint("[SYS005] No USB Serial devices detected on the Android box.");
+          return false;
+        }
+      } else {
+        debugPrint("[SYS005] Non-Android platform. Mocking SYS005 check as true.");
+        return true;
+      }
+    } catch (e) {
+      debugPrint("[SYS005] Error in UART communication check: $e");
       return false;
     }
   }

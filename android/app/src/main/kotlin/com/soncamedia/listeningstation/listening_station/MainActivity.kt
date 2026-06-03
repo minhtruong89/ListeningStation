@@ -1,6 +1,11 @@
 package com.soncamedia.listeningstation.listening_station
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.BroadcastReceiver
+import android.app.PendingIntent
+import android.os.Bundle
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -8,13 +13,52 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbEndpoint
+import android.hardware.usb.UsbInterface
+import android.hardware.usb.UsbManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.soncamedia.listeningstation/audio_devices"
+    private val ACTION_USB_PERMISSION = "com.soncamedia.listeningstation.USB_PERMISSION"
     private var mediaPlayer: MediaPlayer? = null
+    private var usbPermissionCallback: ((Boolean) -> Unit)? = null
+
+    private val usbReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (ACTION_USB_PERMISSION == intent.action) {
+                synchronized(this) {
+                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                        device?.let {
+                            android.util.Log.d("UsbPermission", "Permission granted for device ${device.deviceName}")
+                            usbPermissionCallback?.invoke(true)
+                        }
+                    } else {
+                        android.util.Log.d("UsbPermission", "Permission denied for device ${device?.deviceName}")
+                        usbPermissionCallback?.invoke(false)
+                    }
+                    usbPermissionCallback = null
+                }
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val filter = IntentFilter(ACTION_USB_PERMISSION)
+        registerReceiver(usbReceiver, filter)
+    }
+
+    override fun onDestroy() {
+        unregisterReceiver(usbReceiver)
+        super.onDestroy()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -37,6 +81,25 @@ class MainActivity : FlutterActivity() {
                     recordAudioAtDevice(filePath, deviceIndex, durationMs) { success ->
                         result.success(success)
                     }
+                }
+                "getUsbSerialDevices" -> {
+                    val serialDevicesList = getConnectedUsbSerialDevices()
+                    result.success(serialDevicesList)
+                }
+                "requestUsbPermission" -> {
+                    val vendorId = call.argument<Int>("vendorId") ?: 0
+                    val productId = call.argument<Int>("productId") ?: 0
+                    requestUsbPermission(vendorId, productId) { granted ->
+                        result.success(granted)
+                    }
+                }
+                "testUartCommunicate" -> {
+                    val vendorId = call.argument<Int>("vendorId") ?: 0
+                    val productId = call.argument<Int>("productId") ?: 0
+                    val baudRate = call.argument<Int>("baudRate") ?: 9600
+                    val testMessage = call.argument<String>("testMessage") ?: "PING\n"
+                    val testResult = testUartCommunicate(vendorId, productId, baudRate, testMessage)
+                    result.success(testResult)
                 }
                 else -> {
                     result.notImplemented()
@@ -163,6 +226,185 @@ class MainActivity : FlutterActivity() {
             } catch (ex: Exception) {}
             callback(false)
         }
+    }
+
+    private fun getConnectedUsbSerialDevices(): List<Map<String, Any>> {
+        val list = mutableListOf<Map<String, Any>>()
+        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val deviceList = usbManager.deviceList
+        for (device in deviceList.values) {
+            if (isUsbSerialDevice(device)) {
+                val map = mapOf(
+                    "name" to (device.productName ?: "USB Serial Device"),
+                    "vendorId" to device.vendorId,
+                    "productId" to device.productId,
+                    "hasPermission" to usbManager.hasPermission(device)
+                )
+                list.add(map)
+            }
+        }
+        return list
+    }
+
+    private fun isUsbSerialDevice(device: UsbDevice): Boolean {
+        val vid = device.vendorId
+        if (vid == 0x1A86 || // CH340 / CH341
+            vid == 0x10C4 || // CP210x
+            vid == 0x0403 || // FTDI
+            vid == 0x067B || // PL2303
+            vid == 0x2341 || // Arduino Uno
+            device.deviceClass == UsbConstants.USB_CLASS_COMM) {
+            return true
+        }
+        return false
+    }
+
+    private fun requestUsbPermission(vendorId: Int, productId: Int, callback: (Boolean) -> Unit) {
+        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val deviceList = usbManager.deviceList
+        var targetDevice: UsbDevice? = null
+        for (device in deviceList.values) {
+            if (device.vendorId == vendorId && device.productId == productId) {
+                targetDevice = device
+                break
+            }
+        }
+
+        if (targetDevice == null) {
+            callback(false)
+            return
+        }
+
+        if (usbManager.hasPermission(targetDevice)) {
+            callback(true)
+            return
+        }
+
+        usbPermissionCallback = callback
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_MUTABLE
+        } else {
+            0
+        }
+        val permissionIntent = PendingIntent.getBroadcast(
+            this, 0, Intent(ACTION_USB_PERMISSION), flags
+        )
+        usbManager.requestPermission(targetDevice, permissionIntent)
+    }
+
+    private fun testUartCommunicate(vendorId: Int, productId: Int, baudRate: Int, testMessage: String): Map<String, Any> {
+        val response = mutableMapOf<String, Any>()
+        response["success"] = false
+
+        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val deviceList = usbManager.deviceList
+        var targetDevice: UsbDevice? = null
+        for (device in deviceList.values) {
+            if (device.vendorId == vendorId && device.productId == productId) {
+                targetDevice = device
+                break
+            }
+        }
+
+        if (targetDevice == null) {
+            response["message"] = "Device with VID: $vendorId, PID: $productId not found"
+            return response
+        }
+
+        if (!usbManager.hasPermission(targetDevice)) {
+            response["message"] = "No permission to access device. Request permission first."
+            return response
+        }
+
+        val connection = usbManager.openDevice(targetDevice)
+        if (connection == null) {
+            response["message"] = "Failed to open USB device connection."
+            return response
+        }
+
+        try {
+            val usbInterface = targetDevice.getInterface(0)
+            if (!connection.claimInterface(usbInterface, true)) {
+                response["message"] = "Failed to claim USB interface."
+                connection.close()
+                return response
+            }
+
+            var inEndpoint: UsbEndpoint? = null
+            var outEndpoint: UsbEndpoint? = null
+            for (i in 0 until usbInterface.endpointCount) {
+                val ep = usbInterface.getEndpoint(i)
+                if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                    if (ep.direction == UsbConstants.USB_DIR_IN) {
+                        inEndpoint = ep
+                    } else if (ep.direction == UsbConstants.USB_DIR_OUT) {
+                        outEndpoint = ep
+                    }
+                }
+            }
+
+            if (inEndpoint == null || outEndpoint == null) {
+                response["message"] = "Failed to find Bulk Input or Output endpoints on interface 0."
+                connection.releaseInterface(usbInterface)
+                connection.close()
+                return response
+            }
+
+            val vid = targetDevice.vendorId
+            if (vid == 0x10C4) {
+                connection.controlTransfer(0x41, 0x00, 0x0001, 0, null, 0, 1000)
+                val baudRateBytes = byteArrayOf(
+                    (baudRate and 0xFF).toByte(),
+                    ((baudRate shr 8) and 0xFF).toByte(),
+                    ((baudRate shr 16) and 0xFF).toByte(),
+                    ((baudRate shr 24) and 0xFF).toByte()
+                )
+                connection.controlTransfer(0x40, 0x1E, 0, 0, baudRateBytes, baudRateBytes.size, 1000)
+            } else if (vid == 0x1A86) {
+                connection.controlTransfer(0x40, 0xA1, 0xC29C, 0xB2C9, null, 0, 1000)
+                connection.controlTransfer(0x40, 0xA4, 0xDF00, 0, null, 0, 1000)
+                val divisorVal = if (baudRate == 115200) 0x0012 else 0x0050
+                connection.controlTransfer(0x40, 0x9A, 0x2518, divisorVal, null, 0, 1000)
+                connection.controlTransfer(0x40, 0xA4, 0xFF7F, 0, null, 0, 1000)
+            } else if (targetDevice.deviceClass == UsbConstants.USB_CLASS_COMM) {
+                val lineCoding = byteArrayOf(
+                    (baudRate and 0xFF).toByte(),
+                    ((baudRate shr 8) and 0xFF).toByte(),
+                    ((baudRate shr 16) and 0xFF).toByte(),
+                    ((baudRate shr 24) and 0xFF).toByte(),
+                    0.toByte(),
+                    0.toByte(),
+                    8.toByte()
+                )
+                connection.controlTransfer(0x21, 0x20, 0, 0, lineCoding, lineCoding.size, 1000)
+                connection.controlTransfer(0x21, 0x22, 0x3, 0, null, 0, 1000)
+            }
+
+            val sendBytes = testMessage.toByteArray(Charsets.UTF_8)
+            val sentLen = connection.bulkTransfer(outEndpoint, sendBytes, sendBytes.size, 1000)
+            response["sent"] = sentLen
+
+            val readBuf = ByteArray(1024)
+            val readLen = connection.bulkTransfer(inEndpoint, readBuf, readBuf.size, 2000)
+            if (readLen > 0) {
+                val receivedData = String(readBuf, 0, readLen, Charsets.UTF_8)
+                response["received"] = receivedData
+                response["success"] = true
+                response["message"] = "UART Write/Read success."
+            } else {
+                response["received"] = ""
+                response["success"] = true
+                response["message"] = "UART Write success, but Read timed out (no incoming bytes)."
+            }
+
+            connection.releaseInterface(usbInterface)
+        } catch (e: Exception) {
+            response["message"] = "Error communicating with USB Serial device: ${e.message}"
+        } finally {
+            connection.close()
+        }
+
+        return response
     }
 
     private fun getDeviceTypeName(type: Int): String {

@@ -22,12 +22,12 @@
     {
       "id": "SYS004",
       "camera_micro_required": true,
-      "message_vi": "Camera Micro không hoạt động"
+      "message_vi": "Camera Micro không hoạt động."
     },
     {
       "id": "SYS005",
-      "cassette_door_closed": true,
-      "message_vi": "Cửa cassette đang mở."
+      "led_uart_required": true,
+      "message_vi": "LED UART không hoạt động."
     },
     {
       "id": "SYS006",

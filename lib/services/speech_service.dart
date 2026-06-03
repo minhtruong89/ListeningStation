@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart';
@@ -11,13 +12,20 @@ abstract class ISpeechService {
   void stop();
   bool get isMuted;
   set isMuted(bool value);
+  bool get flagSendUART;
+  set flagSendUART(bool value);
+  void setUartDevice(int vendorId, int productId);
 }
 
 class SpeechService implements ISpeechService {
+  static int? uartVid;
+  static int? uartPid;
+
   final http.Client _httpClient;
   final AudioPlayer _audioPlayer = AudioPlayer();
   
   bool _isMuted = false;
+  bool _flagSendUART = true;
   String? _apiKey;
   late String _dataDir;
   late String _tempMp3Path;
@@ -31,6 +39,19 @@ class SpeechService implements ISpeechService {
 
   @override
   set isMuted(bool value) => _isMuted = value;
+
+  @override
+  bool get flagSendUART => _flagSendUART;
+
+  @override
+  set flagSendUART(bool value) => _flagSendUART = value;
+
+  @override
+  void setUartDevice(int vendorId, int productId) {
+    uartVid = vendorId;
+    uartPid = productId;
+    debugPrint("[SpeechService] Saved UART device: VID=0x${vendorId.toRadixString(16).toUpperCase()}, PID=0x${productId.toRadixString(16).toUpperCase()}");
+  }
 
   Future<void> _initPath() async {
     final appDir = await getApplicationDocumentsDirectory();
@@ -54,6 +75,48 @@ class SpeechService implements ISpeechService {
       }
     } catch (e) {
       debugPrint("Error loading OpenAI Key for TTS: $e");
+    }
+  }
+
+  Future<void> _sendUartMessage(String msg) async {
+    try {
+      if (!Platform.isAndroid) return;
+
+      const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+
+      // Use cached device if available
+      if (uartVid != null && uartPid != null) {
+        await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
+          'vendorId': uartVid,
+          'productId': uartPid,
+          'baudRate': 9600,
+          'testMessage': msg,
+        });
+        debugPrint("[SpeechService UART] Sent '$msg' successfully using cached device (VID: 0x${uartVid!.toRadixString(16).toUpperCase()}).");
+        return;
+      }
+
+      // Fallback: If not cached yet, scan the bus
+      final List<dynamic>? serialDevices = await channel.invokeMethod<List<dynamic>>('getUsbSerialDevices');
+      if (serialDevices != null && serialDevices.isNotEmpty) {
+        final Map<dynamic, dynamic> firstDevice = serialDevices.first as Map<dynamic, dynamic>;
+        uartVid = firstDevice['vendorId'] ?? 0;
+        uartPid = firstDevice['productId'] ?? 0;
+        final bool hasPerm = firstDevice['hasPermission'] ?? false;
+        if (hasPerm) {
+          await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
+            'vendorId': uartVid,
+            'productId': uartPid,
+            'baudRate': 9600,
+            'testMessage': msg,
+          });
+          debugPrint("[SpeechService UART] Sent '$msg' and cached device.");
+        } else {
+          debugPrint("[SpeechService UART] Cannot send: USB permission not granted.");
+        }
+      }
+    } catch (e) {
+      debugPrint("[SpeechService UART] Error sending UART message: $e");
     }
   }
 
@@ -104,7 +167,14 @@ class SpeechService implements ISpeechService {
       
       // Delay play by a brief 200ms to ensure device channel is ready
       await Future.delayed(const Duration(milliseconds: 200));
+
+      if (_flagSendUART) {
+        await _sendUartMessage("YES\n");
+      }
       await _audioPlayer.play();
+      if (_flagSendUART) {
+        await _sendUartMessage("NO\n");
+      }
     } catch (e) {
       debugPrint("OpenAI TTS Error: $e");
     }
@@ -114,8 +184,11 @@ class SpeechService implements ISpeechService {
   void stop() {
     try {
       _audioPlayer.stop();
+      if (_flagSendUART) {
+        _sendUartMessage("NO\n");
+      }
     } catch (e) {
-      debugPrint("Error stopping audio player: \$e");
+      debugPrint("Error stopping audio player: $e");
     }
   }
 }

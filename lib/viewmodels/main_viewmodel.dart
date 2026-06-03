@@ -116,6 +116,7 @@ class MainViewModel extends ChangeNotifier {
 
     //await testOutputLine();
     //await testInputLine();
+    //await testUARTCommunicate();
 
     notifyListeners();
   }
@@ -298,6 +299,68 @@ class MainViewModel extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint("[Hardware Check] Error recording audio device: $e");
+    }
+  }
+
+  Future<void> testUARTCommunicate() async {
+    try {
+      if (Platform.isAndroid) {
+        const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+        debugPrint("[Hardware Check] Scanning for USB Serial devices...");
+        
+        final List<dynamic>? serialDevices = await channel.invokeMethod<List<dynamic>>('getUsbSerialDevices');
+        if (serialDevices != null && serialDevices.isNotEmpty) {
+          debugPrint("[Hardware Check] Detected ${serialDevices.length} USB Serial device(s):");
+          for (var device in serialDevices) {
+            final Map<dynamic, dynamic> dev = device as Map<dynamic, dynamic>;
+            final String name = dev['name'] ?? "Unknown";
+            final int vid = dev['vendorId'] ?? 0;
+            final int pid = dev['productId'] ?? 0;
+            final bool hasPerm = dev['hasPermission'] ?? false;
+            bool currentPerm = hasPerm;
+            if (!currentPerm) {
+              debugPrint("  - USB Permission missing. Requesting permission for $name...");
+              final bool? granted = await channel.invokeMethod<bool>('requestUsbPermission', {
+                'vendorId': vid,
+                'productId': pid,
+              });
+              debugPrint("  - USB Permission request result: $granted");
+              currentPerm = granted ?? false;
+            }
+
+            if (!currentPerm) {
+              debugPrint("  - Cannot test UART: Permission denied by user.");
+              continue;
+            }
+
+            // Perform write/read test
+            debugPrint("  - Running write/read UART test...");
+            final Map<dynamic, dynamic>? testResult = await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
+              'vendorId': vid,
+              'productId': pid,
+              'baudRate': 9600,
+              'testMessage': "NO\n",
+            });
+            
+            if (testResult != null) {
+              final bool success = testResult['success'] ?? false;
+              final int sent = testResult['sent'] ?? 0;
+              final String received = testResult['received'] ?? "";
+              final String msg = testResult['message'] ?? "";
+              debugPrint("    - Test Success: $success");
+              debugPrint("    - Sent: $sent bytes");
+              debugPrint("    - Received: '$received'");
+              debugPrint("    - Status Message: $msg");
+            }
+          }
+        } else {
+          debugPrint("[Hardware Check] No USB Serial devices detected on the Android box.");
+        }
+      } else {
+        debugPrint("[Hardware Check] USB Serial test skipped: Not on Android platform.");
+      }
+    } catch (e) {
+      debugPrint("[Hardware Check] Error testing USB Serial UART communication: $e");
     }
   }
 

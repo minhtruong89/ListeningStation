@@ -267,6 +267,26 @@ class _AuthViewState extends State<AuthView> {
       tempFilePath = tempFile.path;
       debugPrint("[AuthView-Fallback] Frame saved to temp file: $tempFilePath");
 
+      // TODO TEST Copy to public directory for verification with unique timestamp
+      /*try {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final downloadDir = Directory('/storage/emulated/0/Download');
+        if (await downloadDir.exists()) {
+          final targetFile = File('${downloadDir.path}/rotated_scan_grab_$timestamp.jpg');
+          await tempFile.copy(targetFile.path);
+          debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved grab image to: ${targetFile.path}");
+        } else {
+          final sdcardDir = Directory('/sdcard');
+          if (await sdcardDir.exists()) {
+            final targetFile = File('${sdcardDir.path}/rotated_scan_grab_$timestamp.jpg');
+            await tempFile.copy(targetFile.path);
+            debugPrint("[AuthView-Fallback] EXPORT SUCCESS: Saved grab image to: ${targetFile.path}");
+          }
+        }
+      } catch (exportErr) {
+        debugPrint("[AuthView-Fallback] Export grab image failed: $exportErr");
+      }*/
+
       // 1. Analyze for Barcodes / QR Code using a temp instance of MobileScannerController
       debugPrint("[AuthView-Fallback] Starting QR detection on captured frame...");
       final tempController = MobileScannerController();

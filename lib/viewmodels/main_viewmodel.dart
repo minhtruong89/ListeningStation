@@ -45,7 +45,10 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       await _dataService.initializeAsync();
+
+      // TODO TEST RESET Verifications
       await _dataService.clearOperatorVerificationsAsync();
+
       _startupCheckLogs.removeLast();
       _startupCheckLogs.add("SYS_DB - PASS (CSDL ok)");
     } catch (e) {

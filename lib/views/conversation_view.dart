@@ -292,7 +292,7 @@ class _ConversationViewState extends State<ConversationView> {
 
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
-    scale = 1.5; // 1.5 - 1.2
+    scale = 1.2; // 1.5 - 1.2
 
     // Manage focus transitions based on popup visibility changes
     if (vm.isSummaryVisible && !_prevIsSummaryVisible) {

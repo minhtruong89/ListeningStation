@@ -150,7 +150,7 @@ class _SplashViewState extends State<SplashView> {
     final vm = context.watch<MainViewModel>();
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
-    scale = 1.9; // 1.9 - 1.4
+    scale = 1.4; // 1.9 - 1.4
 
     // Request focus on the retry button if validation failed and we haven't requested it yet
     if (!vm.isValidating && vm.errorMessage.isNotEmpty && !_hasRequestedFocus) {

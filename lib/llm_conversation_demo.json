@@ -1,0 +1,257 @@
+{
+  "Phase1": {
+    "phaseName": "Chào hỏi và trấn an",
+    "introductionPhase": [
+      "Con chào cô bác. Con là Trạm Lắng Nghe của Quỹ Từ Thiện Bông Sen.",
+      "Cô bác đừng quá lo lắng, cô bác có thể kể hoàn cảnh của mình cho con nghe.",
+      "Con ở đây để lắng nghe và ghi nhận thông tin để quỹ xem xét giúp đỡ."
+    ],
+    "questions": [
+      {
+        "titleQuestion": "Tên",
+        "Question": "Trước tiên cô bác cho con biết tên của mình được không?",
+        "Answer": "NGUYỄN THỊ LỤA"
+      }
+    ]
+  },
+  "Phase2": {
+    "phaseName": "Thông tin cá nhân",
+    "questions": [
+      {
+        "titleQuestion": "Tuổi",
+        "Question": "Cô bác năm nay khoảng bao nhiêu tuổi?",
+        "Answer": "57"
+      },
+      {
+        "titleQuestion": "Địa chỉ",
+        "Question": "Cô bác hiện đang sống ở tỉnh hoặc huyện nào?",
+        "Answer": "Hồ Chí Minh"
+      },
+      {
+        "titleQuestion": "Người sống cùng",
+        "Question": "Cô bác đang sống cùng với ai trong gia đình?",
+        "Answer": "Không có"
+      },
+      {
+        "titleQuestion": "Nghề nghiệp",
+        "Question": "Cô bác làm nghề gì?",
+        "Answer": "Không nghề nghiệp"
+      },
+      {
+        "titleQuestion": "Thời gian làm việc",
+        "Question": "Công việc này cô bác làm được bao lâu rồi?",
+        "Answer": "Không có"
+      },
+      {
+        "titleQuestion": "Giấy tờ tùy thân",
+        "Question": "Cô bác có giấy tờ tùy thân như căn cước công dân không?",
+        "Answer": "Có"
+      }
+    ]
+  },
+  "Phase3": {
+    "phaseName": "Hoàn cảnh khó khăn",
+    "questions": [
+      {
+        "titleQuestion": "Hoàn cảnh khó khăn",
+        "Question": "Cô bác có thể kể rõ hơn hoàn cảnh khó khăn mà mình đang gặp phải không?",
+        "Answer": "Cần tiền phẫu thuật"
+      },
+      {
+        "titleQuestion": "Thời điểm bắt đầu khó khăn",
+        "Question": "Khó khăn này bắt đầu từ khi nào?",
+        "Answer": "Hôm nay"
+      },
+      {
+        "titleQuestion": "Giải pháp trước đây",
+        "Question": "Trước khi đến đây cô bác đã tìm cách giải quyết như thế nào?",
+        "Answer": "Mượn tiền người thân"
+      },
+      {
+        "titleQuestion": "Lo lắng nhất",
+        "Question": "Hiện tại điều gì làm cô bác lo lắng nhất?",
+        "Answer": "Không đủ tiền phẫu thuật"
+      },
+      {
+        "titleQuestion": "Hậu quả nếu không hỗ trợ",
+        "Question": "Nếu không được giúp đỡ thì điều gì có thể xảy ra?",
+        "Answer": "Tổn thương vĩnh viễn"
+      }
+    ]
+  },
+  "Phase4": {
+    "phaseName": "Tình trạng sức khỏe",
+    "questions": [
+      {
+        "titleQuestion": "Tình trạng bệnh",
+        "Question": "Cô bác hoặc người thân đang mắc bệnh gì?",
+        "Answer": "Viêm thận cấp"
+      },
+      {
+        "titleQuestion": "Chẩn đoán",
+        "Question": "Bệnh này đã được bác sĩ chẩn đoán chưa?",
+        "Answer": "Đã được"
+      },
+      {
+        "titleQuestion": "Giấy tờ y tế",
+        "Question": "Cô bác có giấy tờ khám bệnh hoặc đơn thuốc không?",
+        "Answer": "Không"
+      },
+      {
+        "titleQuestion": "Mức độ khẩn cấp điều trị",
+        "Question": "Bệnh này có cần điều trị gấp không?",
+        "Answer": "Gấp"
+      },
+      {
+        "titleQuestion": "Chi phí điều trị",
+        "Question": "Chi phí điều trị khoảng bao nhiêu?",
+        "Answer": "1.5 triệu"
+      },
+      {
+        "titleQuestion": "Nguy hiểm nếu không điều trị",
+        "Question": "Nếu không điều trị ngay thì có nguy hiểm không?",
+        "Answer": "Nguy hiểm"
+      }
+    ]
+  },
+  "Phase5": {
+    "phaseName": "Thu nhập và kinh tế",
+    "questions": [
+      {
+        "titleQuestion": "Thu nhập",
+        "Question": "Thu nhập trung bình mỗi tháng của cô bác khoảng bao nhiêu?",
+        "Answer": "Không có"
+      },
+      {
+        "titleQuestion": "Tính ổn định thu nhập",
+        "Question": "Thu nhập này có ổn định không?",
+        "Answer": "Không"
+      },
+      {
+        "titleQuestion": "Nguồn thu khác",
+        "Question": "Gia đình cô bác có ai khác có thu nhập không?",
+        "Answer": "Không"
+      },
+      {
+        "titleQuestion": "Tiền còn lại",
+        "Question": "Sau khi chi tiêu cơ bản thì còn lại bao nhiêu?",
+        "Answer": "vài trăm"
+      },
+      {
+        "titleQuestion": "Nợ",
+        "Question": "Cô bác có đang nợ tiền ai không?",
+        "Answer": "Có"
+      },
+      {
+        "titleQuestion": "Số tiền nợ",
+        "Question": "Nếu có nợ thì khoảng bao nhiêu?",
+        "Answer": "10 triệu"
+      },
+      {
+        "titleQuestion": "Biến động thu nhập",
+        "Question": "Trong thời gian gần đây thu nhập của cô bác có giảm không?",
+        "Answer": "Không"
+      }
+    ]
+  },
+  "Phase6": {
+    "phaseName": "Gia đình và người phụ thuộc",
+    "questions": [
+      {
+        "titleQuestion": "Số người trong gia đình",
+        "Question": "Gia đình cô bác có bao nhiêu người?",
+        "Answer": "3"
+      },
+      {
+        "titleQuestion": "Người phụ thuộc",
+        "Question": "Có bao nhiêu người đang phụ thuộc vào cô bác?",
+        "Answer": "2"
+      },
+      {
+        "titleQuestion": "Người cần chăm sóc",
+        "Question": "Có trẻ nhỏ hoặc người già cần chăm sóc không?",
+        "Answer": "Có"
+      },
+      {
+        "titleQuestion": "Người bệnh trong gia đình",
+        "Question": "Có ai trong gia đình đang bị bệnh không?",
+        "Answer": "Có"
+      },
+      {
+        "titleQuestion": "Người hỗ trợ",
+        "Question": "Có ai có thể giúp cô bác trong lúc khó khăn này không?",
+        "Answer": "Không"
+      },
+      {
+        "titleQuestion": "Tài sản",
+        "Question": "Gia đình có tài sản nào có thể bán hoặc cầm cố không?",
+        "Answer": "Đã bán hết"
+      }
+    ]
+  },
+  "Phase7": {
+    "phaseName": "Mức độ khẩn cấp",
+    "questions": [
+      {
+        "titleQuestion": "Thời gian cần hỗ trợ",
+        "Question": "Cô bác cần sự giúp đỡ này trong bao lâu?",
+        "Answer": "Trong vài ngày"
+      },
+      {
+        "titleQuestion": "Hậu quả ngắn hạn",
+        "Question": "Nếu không được giúp trong vài ngày tới thì điều gì sẽ xảy ra?",
+        "Answer": "Có thể chết"
+      },
+      {
+        "titleQuestion": "Nơi ở",
+        "Question": "Cô bác có nơi ở an toàn không?",
+        "Answer": "Tạm"
+      },
+      {
+        "titleQuestion": "Tiền sinh hoạt",
+        "Question": "Hiện tại cô bác có đủ tiền ăn uống cho vài ngày tới không?",
+        "Answer": "Có thể xin từ thiện"
+      },
+      {
+        "titleQuestion": "Nguy hiểm hoặc bạo hành",
+        "Question": "Có ai đang bị nguy hiểm hoặc bị bạo hành không?",
+        "Answer": "Không"
+      },
+      {
+        "titleQuestion": "Suy nghĩ tiêu cực",
+        "Question": "Cô bác có từng nghĩ đến việc làm hại bản thân vì quá khó khăn không?",
+        "Answer": "Chưa"
+      }
+    ]
+  },
+  "Phase8": {
+    "phaseName": "Chứng cứ và xác nhận",
+    "questions": [
+      {
+        "titleQuestion": "Bằng chứng",
+        "Question": "Cô bác có thể đưa giấy tờ hoặc bằng chứng liên quan cho con xem không?",
+        "Answer": "Có căn cước"
+      },
+      {
+        "titleQuestion": "Chụp ảnh giấy tờ",
+        "Question": "Con sẽ chụp ảnh giấy tờ này để lưu hồ sơ.",
+        "Answer": "Có giấy khám bệnh"
+      },
+      {
+        "titleQuestion": "Ghi hình",
+        "Question": "Cô bác có thể cho phép ghi lại video lời trình bày của mình không?",
+        "Answer": "Có"
+      },
+      {
+        "titleQuestion": "Người xác nhận",
+        "Question": "Có ai ở đây có thể xác nhận hoàn cảnh của cô bác không?",
+        "Answer": "Có"
+      },
+      {
+        "titleQuestion": "Xác nhận từ bên thứ ba",
+        "Question": "Chức sắc tôn giáo hoặc người chứng kiến có thể xác nhận thông tin này không?",
+        "Answer": "Không"
+      }
+    ]
+  }
+}

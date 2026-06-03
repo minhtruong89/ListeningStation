@@ -111,9 +111,10 @@ class MainViewModel extends ChangeNotifier {
       _currentStage = AppStage.splash; // Stay on splash showing error
     }
 
-    await testOutputLine();
+    //await testOutputLine();
+    //await testInputLine();
 
-    //notifyListeners();
+    notifyListeners();
   }
 
   void navigateTo(AppStage stage) {
@@ -170,7 +171,7 @@ class MainViewModel extends ChangeNotifier {
     try {
       if (Platform.isAndroid) {
         const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
-        final String targetName = "AB13X";
+        final String targetName = "M96mini (HDMI)";
         
         int targetIndex = -1;
         String targetDeviceName = "Unknown Device";
@@ -209,6 +210,92 @@ class MainViewModel extends ChangeNotifier {
     }
 
 
+  }
+
+  Future<void> testInputLine() async {
+    try {
+      if (Platform.isAndroid) {
+        // Request required permissions
+        await Permission.microphone.request();
+        await Permission.storage.request();
+
+        try {
+          const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+          final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
+          if (devices != null) {
+            final List<dynamic>? outputs = devices['outputs'];
+            final List<dynamic>? inputs = devices['inputs'];
+            debugPrint("[Hardware Check] Android Audio Outputs:");
+            if (outputs != null && outputs.isNotEmpty) {
+              for (var dev in outputs) {
+                debugPrint("  - $dev");
+              }
+            } else {
+              debugPrint("  None detected");
+            }
+
+            debugPrint("[Hardware Check] Android Microphone Inputs:");
+            if (inputs != null && inputs.isNotEmpty) {
+              for (var dev in inputs) {
+                debugPrint("  - $dev");
+              }
+            } else {
+              debugPrint("  None detected");
+            }
+          }
+        } catch (e) {
+          debugPrint("[Hardware Check] Error detecting audio/micro devices: $e");
+        }
+
+        // detect camera micro targetName
+        const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+        final List<String> targets = ["UGREEN", "Camera", "Logi"];
+        
+        int targetIndex = -1;
+        String targetDeviceName = "Unknown Device";
+        
+        final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
+        if (devices != null) {
+          final List<dynamic>? inputs = devices['inputs'];
+          if (inputs != null) {
+            for (int i = 0; i < inputs.length; i++) {
+              final String name = inputs[i].toString();
+              bool matched = false;
+              for (var target in targets) {
+                if (name.toLowerCase().contains(target.toLowerCase())) {
+                  matched = true;
+                  break;
+                }
+              }
+              if (matched) {
+                targetIndex = i;
+                targetDeviceName = name;
+                break;
+              }
+            }
+          }
+        }
+
+        if (targetIndex != -1) {
+          final int timestamp = DateTime.now().millisecondsSinceEpoch;
+          final String path = "/sdcard/Download/testMic_$timestamp.m4a";
+          debugPrint("[Hardware Check] Found matching input device '$targetDeviceName' at index $targetIndex. Attempting to record 5s of audio to: $path");
+          
+          final bool? success = await channel.invokeMethod<bool>('recordAudioAtDevice', {
+            'filePath': path,
+            'deviceIndex': targetIndex,
+            'durationMs': 5000,
+          });
+          debugPrint("[Hardware Check] Record audio success status: $success");
+        } else {
+          debugPrint("[Hardware Check] No input device containing any of $targets was found. Skip recording.");
+        }
+      } else {
+        debugPrint("[Hardware Check] Record audio skipped: Not on Android platform.");
+      }
+    } catch (e) {
+      debugPrint("[Hardware Check] Error recording audio device: $e");
+    }
   }
 
 }

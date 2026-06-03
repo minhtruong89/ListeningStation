@@ -4,7 +4,10 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -27,6 +30,14 @@ class MainActivity : FlutterActivity() {
                     val success = playMp3AtDevice(filePath, deviceIndex)
                     result.success(success)
                 }
+                "recordAudioAtDevice" -> {
+                    val filePath = call.argument<String>("filePath") ?: ""
+                    val deviceIndex = call.argument<Int>("deviceIndex") ?: 0
+                    val durationMs = call.argument<Number>("durationMs")?.toLong() ?: 5000L
+                    recordAudioAtDevice(filePath, deviceIndex, durationMs) { success ->
+                        result.success(success)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -40,17 +51,15 @@ class MainActivity : FlutterActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_ALL)
-            for (device in devices) {
+            val outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            for (device in outputDevices) {
                 val typeName = getDeviceTypeName(device.type)
-                val deviceName = "${device.productName} ($typeName)"
-                
-                if (device.isSink) {
-                    outputs.add(deviceName)
-                }
-                if (device.isSource) {
-                    inputs.add(deviceName)
-                }
+                outputs.add("${device.productName} ($typeName)")
+            }
+            val inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            for (device in inputDevices) {
+                val typeName = getDeviceTypeName(device.type)
+                inputs.add("${device.productName} ($typeName)")
             }
         } else {
             outputs.add("Built-in Speaker")
@@ -97,6 +106,62 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             android.util.Log.e("AudioPlay", "Error playing MP3: ${e.message}", e)
             return false
+        }
+    }
+
+    private fun recordAudioAtDevice(filePath: String, deviceIndex: Int, durationMs: Long, callback: (Boolean) -> Unit) {
+        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(this)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaRecorder()
+        }
+
+        try {
+            val file = java.io.File(filePath)
+            file.parentFile?.mkdirs()
+
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            recorder.setOutputFile(filePath)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                if (deviceIndex >= 0 && deviceIndex < devices.size) {
+                    val targetDevice = devices[deviceIndex]
+                    val success = recorder.setPreferredDevice(targetDevice)
+                    android.util.Log.d("AudioRecord", "Setting preferred input device: ${targetDevice.productName}, success=$success")
+                } else {
+                    android.util.Log.w("AudioRecord", "Device index $deviceIndex out of bounds (0..${devices.size - 1})")
+                }
+            }
+
+            recorder.prepare()
+            recorder.start()
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    recorder.stop()
+                    recorder.release()
+                    android.util.Log.d("AudioRecord", "Recording finished and saved to $filePath")
+                    callback(true)
+                } catch (e: Exception) {
+                    android.util.Log.e("AudioRecord", "Error stopping recorder: ${e.message}", e)
+                    try {
+                        recorder.release()
+                    } catch (ex: Exception) {}
+                    callback(false)
+                }
+            }, durationMs)
+
+        } catch (e: Exception) {
+            android.util.Log.e("AudioRecord", "Error during recording setup: ${e.message}", e)
+            try {
+                recorder.release()
+            } catch (ex: Exception) {}
+            callback(false)
         }
     }
 

@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/operator.dart';
 import '../models/patient.dart';
 import 'auth_service.dart';
@@ -39,6 +41,9 @@ abstract class IRuleEngineService {
   Future<int> getRequiredOperatorCountAsync(bool isInsideWorkingHours);
   Future<double> getMaxTransactionLimitAsync();
   Future<List<RuleCheckResult>> evaluateStaffVerificationAsync(List<Operator> operators);
+
+  int get matchedMicrophoneIndex;
+  String get matchedMicrophoneName;
 }
 
 class RuleEngineService implements IRuleEngineService {
@@ -47,6 +52,15 @@ class RuleEngineService implements IRuleEngineService {
   final IDataService _dataService;
   final IAuthService _authService;
   final http.Client _httpClient;
+
+  int _matchedMicrophoneIndex = -1;
+  String _matchedMicrophoneName = "";
+
+  @override
+  int get matchedMicrophoneIndex => _matchedMicrophoneIndex;
+
+  @override
+  String get matchedMicrophoneName => _matchedMicrophoneName;
 
   late String _dataDir;
 
@@ -120,7 +134,7 @@ class RuleEngineService implements IRuleEngineService {
               isValid = _cameraService.hasCamera;
               break;
             case "SYS004":
-              isValid = true; // SYS004 - Cash available (always true for mobile mock)
+              isValid = await _checkMicrophoneDeviceAsync();
               break;
             case "SYS005":
               isValid = true; // SYS005 - Cassette door closed (always true for mobile mock)
@@ -350,5 +364,78 @@ class RuleEngineService implements IRuleEngineService {
       if (count > limit) return false;
     }
     return true;
+  }
+
+  Future<bool> _checkMicrophoneDeviceAsync() async {
+    try {
+      if (Platform.isAndroid) {
+        await Permission.microphone.request();
+        await Permission.storage.request();
+
+        try {
+          const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+          final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
+          if (devices != null) {
+            final List<dynamic>? outputs = devices['outputs'];
+            final List<dynamic>? inputs = devices['inputs'];
+            debugPrint("[Hardware Check] Android Audio Outputs:");
+            if (outputs != null && outputs.isNotEmpty) {
+              for (var dev in outputs) {
+                debugPrint("  - $dev");
+              }
+            } else {
+              debugPrint("  None detected");
+            }
+
+            debugPrint("[Hardware Check] Android Microphone Inputs:");
+            if (inputs != null && inputs.isNotEmpty) {
+              for (var dev in inputs) {
+                debugPrint("  - $dev");
+              }
+            } else {
+              debugPrint("  None detected");
+            }
+          }
+        } catch (e) {
+          debugPrint("[Hardware Check] Error detecting audio/micro devices: $e");
+        }
+
+        const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+        final List<String> targets = ["UGREEN", "Camera", "Logi"];
+
+        final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
+        if (devices != null) {
+          final List<dynamic>? inputs = devices['inputs'];
+          if (inputs != null) {
+            for (int i = 0; i < inputs.length; i++) {
+              final String name = inputs[i].toString();
+              bool matched = false;
+              for (var target in targets) {
+                if (name.toLowerCase().contains(target.toLowerCase())) {
+                  matched = true;
+                  break;
+                }
+              }
+              if (matched) {
+                _matchedMicrophoneIndex = i;
+                _matchedMicrophoneName = name;
+                debugPrint("[SYS004] Found matching micro device: $_matchedMicrophoneName at index $_matchedMicrophoneIndex");
+                return true;
+              }
+            }
+          }
+        }
+        debugPrint("[SYS004] No matching micro device containing UGREEN, Camera, or Logi was found.");
+        return false;
+      } else {
+        // Mock true on other platforms (e.g. Windows)
+        _matchedMicrophoneIndex = 0;
+        _matchedMicrophoneName = "Microphone (Virtual Input)";
+        return true;
+      }
+    } catch (e) {
+      debugPrint("[SYS004] Error checking microphone device: $e");
+      return false;
+    }
   }
 }

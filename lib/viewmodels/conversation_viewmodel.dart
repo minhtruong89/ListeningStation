@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../models/conversation.dart';
 import '../services/llm_service.dart';
 import '../services/speech_service.dart';
+import '../services/rule_engine_service.dart';
 
 class ConversationViewModel extends ChangeNotifier {
   final ILLMService _llmService;
   final ISpeechService _speechService;
+  final IRuleEngineService _ruleEngine;
 
   String _userInput = "";
   bool _isProcessing = false;
@@ -18,10 +21,15 @@ class ConversationViewModel extends ChangeNotifier {
   bool _isFinalizeVisible = false;
   bool _isFinalizeConfirmed = false;
 
+  bool _isVoiceInputActive = false;
+  String _voiceInputStatus = "";
+  bool _isVoiceRecording = false;
+  bool _isVoiceTranscribing = false;
+
   final List<ConversationMessage> _messages = [];
   int _currentRequestToken = 0;
 
-  ConversationViewModel(this._llmService, this._speechService) {
+  ConversationViewModel(this._llmService, this._speechService, this._ruleEngine) {
     _isMuted = _speechService.isMuted;
     
     // Auto-start conversation
@@ -42,6 +50,11 @@ class ConversationViewModel extends ChangeNotifier {
   String get finalizeResult => _finalizeResult;
   bool get isFinalizeVisible => _isFinalizeVisible;
   bool get isFinalizeConfirmed => _isFinalizeConfirmed;
+
+  bool get isVoiceInputActive => _isVoiceInputActive;
+  String get voiceInputStatus => _voiceInputStatus;
+  bool get isVoiceRecording => _isVoiceRecording;
+  bool get isVoiceTranscribing => _isVoiceTranscribing;
 
   List<ConversationMessage> get messages => _messages;
 
@@ -147,7 +160,7 @@ class ConversationViewModel extends ChangeNotifier {
         }
       }
     } catch (ex) {
-      debugPrint("[DEBUG] ExtractAmount Error: \$ex");
+      debugPrint("[DEBUG] ExtractAmount Error: $ex");
     }
     return 0.0;
   }
@@ -219,5 +232,63 @@ class ConversationViewModel extends ChangeNotifier {
     _isFinalizeConfirmed = false;
     _isSummaryVisible = false;
     notifyListeners();
+  }
+
+  Future<String?> startVoiceInputAsync() async {
+    if (_isVoiceInputActive) return null;
+
+    _isVoiceInputActive = true;
+    _isVoiceRecording = true;
+    _isVoiceTranscribing = false;
+    _voiceInputStatus = "Đang lắng nghe...";
+    notifyListeners();
+
+    try {
+      int deviceIndex = _ruleEngine.matchedMicrophoneIndex;
+      if (deviceIndex == -1) {
+        deviceIndex = 0;
+      }
+
+      final String path = "/sdcard/Download/voice_input.m4a";
+      const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+      
+      debugPrint("[Voice Input] Recording on device index $deviceIndex to path: $path");
+      final bool? success = await channel.invokeMethod<bool>('recordAudioAtDevice', {
+        'filePath': path,
+        'deviceIndex': deviceIndex,
+        'durationMs': 5000,
+      });
+
+      if (success == true) {
+        _isVoiceRecording = false;
+        _isVoiceTranscribing = true;
+        _voiceInputStatus = "Đang nhận diện...";
+        notifyListeners();
+
+        debugPrint("[Voice Input] Sending audio for transcription...");
+        final String text = await _llmService.transcribeAudioAsync(path);
+        debugPrint("[Voice Input] Transcribed text: $text");
+
+        _isVoiceInputActive = false;
+        _isVoiceTranscribing = false;
+        notifyListeners();
+        return text;
+      } else {
+        _voiceInputStatus = "Lỗi thu âm từ thiết bị.";
+        notifyListeners();
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    } catch (e) {
+      debugPrint("[Voice Input] Error: $e");
+      _voiceInputStatus = "Lỗi xảy ra: $e";
+      notifyListeners();
+      await Future.delayed(const Duration(seconds: 2));
+    } finally {
+      _isVoiceInputActive = false;
+      _isVoiceRecording = false;
+      _isVoiceTranscribing = false;
+      notifyListeners();
+    }
+    return null;
   }
 }

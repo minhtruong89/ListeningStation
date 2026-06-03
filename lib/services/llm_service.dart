@@ -15,6 +15,7 @@ abstract class ILLMService {
   Future<List<ConversationMessage>> getDemoMessagesAsync();
   Future<String> getFinalizeAIAsync(List<ConversationMessage> history);
   Future<String> getDistressScoreAIAsync(List<ConversationMessage> history);
+  Future<String> transcribeAudioAsync(String filePath);
 
   List<ConversationMessage> get lastConversationHistory;
   set lastConversationHistory(List<ConversationMessage> value);
@@ -119,7 +120,7 @@ class LLMService implements ILLMService {
     }
 
     // Sync all JSON configs from soncamedia remote server
-    await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/openAI_key.json", "openAI_key.json");
+    await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/openAI_key.json", "openAI_key.json", flagAlwaysDownload: true);
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_conversation.json", "llm_conversation.json");
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_manner_of_speech.json", "llm_manner_of_speech.json");
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_conversation_demo.json", "llm_conversation_demo.json");
@@ -131,23 +132,25 @@ class LLMService implements ILLMService {
     _loadConfig();
   }
 
-  Future<void> _syncFileAsync(String remoteUrl, String localFileName) async {
+  Future<void> _syncFileAsync(String remoteUrl, String localFileName, {bool flagAlwaysDownload = false}) async {
     final localPath = join(_dataDir, localFileName);
     final localFile = File(localPath);
     debugPrint("\n[LLMService] Syncing: $localFileName to $localPath");
     try {
-      final headResponse = await _httpClient.head(Uri.parse(remoteUrl)).timeout(const Duration(seconds: 5));
-      int remoteSize = -1;
-      if (headResponse.statusCode == 200) {
-        remoteSize = int.tryParse(headResponse.headers['content-length'] ?? '') ?? -1;
-      }
-
       bool shouldDownload = true;
-      if (await localFile.exists()) {
-        final localSize = await localFile.length();
-        if (remoteSize != -1 && remoteSize == localSize) {
-          shouldDownload = false;
-          debugPrint("[LLMService] $localFileName is up-to-date (size: $localSize). Skipping download.");
+      if (!flagAlwaysDownload) {
+        final headResponse = await _httpClient.head(Uri.parse(remoteUrl)).timeout(const Duration(seconds: 5));
+        int remoteSize = -1;
+        if (headResponse.statusCode == 200) {
+          remoteSize = int.tryParse(headResponse.headers['content-length'] ?? '') ?? -1;
+        }
+
+        if (await localFile.exists()) {
+          final localSize = await localFile.length();
+          if (remoteSize != -1 && remoteSize == localSize) {
+            shouldDownload = false;
+            debugPrint("[LLMService] $localFileName is up-to-date (size: $localSize). Skipping download.");
+          }
         }
       }
 
@@ -562,6 +565,53 @@ class LLMService implements ILLMService {
       return reply ?? "Không thể tính điểm.";
     } catch (ex) {
       return "Lỗi: $ex";
+    }
+  }
+
+  @override
+  Future<String> transcribeAudioAsync(String filePath) async {
+    if (_apiKey == null || _apiKey!.isEmpty) return "Lỗi: Chưa cấu hình OpenAI API Key.";
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        return "Lỗi: File ghi âm không tồn tại.";
+      }
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse("https://api.openai.com/v1/audio/transcriptions"),
+      );
+      request.headers['Authorization'] = 'Bearer $_apiKey';
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+      request.fields['model'] = 'whisper-1';
+      request.fields['language'] = 'vi';
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode != 200) {
+        return "Lỗi API: ${response.statusCode} - ${response.body}";
+      }
+
+      final doc = jsonDecode(response.body);
+      String text = doc['text']?.toString() ?? "";
+
+      // Filter out Whisper silent-input/noise hallucinations in Vietnamese
+      final lowerText = text.toLowerCase();
+      if (lowerText.contains("lalaschool") ||
+          lowerText.contains("đăng ký kênh") ||
+          lowerText.contains("đăng ký cho kênh") ||
+          lowerText.contains("không bỏ lỡ những video") ||
+          lowerText.contains("hẹn gặp lại các bạn") ||
+          lowerText.contains("video tiếp theo") ||
+          lowerText.contains("cảm ơn các bạn đã xem")) {
+        debugPrint("[Whisper] Hallucination detected and filtered: '$text'");
+        text = "Âm thanh không rõ ràng. Vui lòng thử lại";
+      }
+
+      return text;
+    } catch (e) {
+      return "Lỗi transcribing: $e";
     }
   }
 }

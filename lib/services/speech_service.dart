@@ -61,10 +61,8 @@ class SpeechService implements ISpeechService {
   Future<void> speakAsync(String text) async {
     if (_isMuted) return;
     
-    // Lazy API key load if not loaded on constructor init
-    if (_apiKey == null) {
-      _loadApiKey();
-    }
+    // Load API key before speaking to ensure we use the latest downloaded key
+    _loadApiKey();
 
     if (text.trim().isEmpty || _apiKey == null || _apiKey!.isEmpty) {
       debugPrint("TTS skipped: Text is empty or API Key is missing.");

@@ -21,6 +21,10 @@ class _ConversationViewState extends State<ConversationView> {
   late final FocusNode _demoButtonFocusNode;
   late final FocusNode _finalizeButtonFocusNode;
 
+  // New Voice & Send button FocusNodes
+  late final FocusNode _voiceButtonFocusNode;
+  late final FocusNode _sendButtonFocusNode;
+
   // Focus nodes for popup buttons
   late final FocusNode _closeSummaryButtonFocusNode;
   late final FocusNode _cancelFinalizeButtonFocusNode;
@@ -31,6 +35,8 @@ class _ConversationViewState extends State<ConversationView> {
   bool _isDemoFocused = false;
   bool _isFinalizeFocused = false;
   bool _isInputFocused = false;
+  bool _isVoiceFocused = false;
+  bool _isSendFocused = false;
 
   // Focus states for popup buttons
   bool _isCloseSummaryFocused = false;
@@ -52,6 +58,42 @@ class _ConversationViewState extends State<ConversationView> {
         _muteButtonFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _voiceButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleVoiceKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _demoButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _inputFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _sendButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleSendKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _finalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _voiceButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }
@@ -59,7 +101,7 @@ class _ConversationViewState extends State<ConversationView> {
   KeyEventResult _handleMuteKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        _inputFocusNode.requestFocus();
+        _voiceButtonFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
@@ -73,7 +115,7 @@ class _ConversationViewState extends State<ConversationView> {
   KeyEventResult _handleDemoKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        _inputFocusNode.requestFocus();
+        _voiceButtonFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
@@ -91,7 +133,7 @@ class _ConversationViewState extends State<ConversationView> {
   KeyEventResult _handleFinalizeKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        _inputFocusNode.requestFocus();
+        _voiceButtonFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
@@ -129,6 +171,8 @@ class _ConversationViewState extends State<ConversationView> {
     _muteButtonFocusNode = FocusNode(onKeyEvent: _handleMuteKeyEvent);
     _demoButtonFocusNode = FocusNode(onKeyEvent: _handleDemoKeyEvent);
     _finalizeButtonFocusNode = FocusNode(onKeyEvent: _handleFinalizeKeyEvent);
+    _voiceButtonFocusNode = FocusNode(onKeyEvent: _handleVoiceKeyEvent);
+    _sendButtonFocusNode = FocusNode(onKeyEvent: _handleSendKeyEvent);
 
     _closeSummaryButtonFocusNode = FocusNode();
     _cancelFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleCancelFinalizeKeyEvent);
@@ -146,6 +190,12 @@ class _ConversationViewState extends State<ConversationView> {
     });
     _finalizeButtonFocusNode.addListener(() {
       if (mounted) setState(() => _isFinalizeFocused = _finalizeButtonFocusNode.hasFocus);
+    });
+    _voiceButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isVoiceFocused = _voiceButtonFocusNode.hasFocus);
+    });
+    _sendButtonFocusNode.addListener(() {
+      if (mounted) setState(() => _isSendFocused = _sendButtonFocusNode.hasFocus);
     });
 
     _closeSummaryButtonFocusNode.addListener(() {
@@ -176,6 +226,8 @@ class _ConversationViewState extends State<ConversationView> {
     _muteButtonFocusNode.dispose();
     _demoButtonFocusNode.dispose();
     _finalizeButtonFocusNode.dispose();
+    _voiceButtonFocusNode.dispose();
+    _sendButtonFocusNode.dispose();
     _closeSummaryButtonFocusNode.dispose();
     _cancelFinalizeButtonFocusNode.dispose();
     _confirmFinalizeButtonFocusNode.dispose();
@@ -555,6 +607,32 @@ class _ConversationViewState extends State<ConversationView> {
                                 SizedBox(
                                   height: 50.0 * scale,
                                   child: ElevatedButton(
+                                    focusNode: _voiceButtonFocusNode,
+                                    onPressed: () async {
+                                      final text = await vm.startVoiceInputAsync();
+                                      if (text != null && text.trim().isNotEmpty) {
+                                        _chatInputController.text = text;
+                                      }
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _isVoiceFocused ? AppStyles.secondaryAccent : AppStyles.glassCardBg,
+                                      foregroundColor: _isVoiceFocused ? AppStyles.backgroundEnd : AppStyles.textPrimary,
+                                      surfaceTintColor: Colors.transparent,
+                                      side: BorderSide(
+                                        color: _isVoiceFocused ? Colors.white : AppStyles.glassCardBorder,
+                                        width: _isVoiceFocused ? 3.0 * scale : 1.0,
+                                      ),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
+                                      elevation: _isVoiceFocused ? 12.0 : 0.0,
+                                    ),
+                                    child: Icon(Icons.mic, size: 18.0 * scale),
+                                  ),
+                                ),
+                                SizedBox(width: 12.0 * scale),
+                                SizedBox(
+                                  height: 50.0 * scale,
+                                  child: ElevatedButton(
+                                    focusNode: _sendButtonFocusNode,
                                     onPressed: () {
                                       final val = _chatInputController.text;
                                       if (val.trim().isNotEmpty) {
@@ -564,10 +642,11 @@ class _ConversationViewState extends State<ConversationView> {
                                       }
                                     },
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppStyles.primaryAccent,
+                                      backgroundColor: _isSendFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.7),
                                       foregroundColor: AppStyles.backgroundEnd,
+                                      side: _isSendFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
-                                      elevation: 0.0,
+                                      elevation: _isSendFocused ? 12.0 : 0.0,
                                     ),
                                     child: Icon(Icons.send, size: 18.0 * scale),
                                   ),
@@ -800,11 +879,148 @@ class _ConversationViewState extends State<ConversationView> {
                     ),
                   ),
                 ),
+              // OVERLAY DIALOG: Voice Input Dialog
+              if (vm.isVoiceInputActive)
+                VoiceInputDialog(
+                  status: vm.voiceInputStatus,
+                  isRecording: vm.isVoiceRecording,
+                  isTranscribing: vm.isVoiceTranscribing,
+                ),
             ],
           ),
         ),
       ),
     ),
+    );
+  }
+}
+
+class VoiceInputDialog extends StatefulWidget {
+  final String status;
+  final bool isRecording;
+  final bool isTranscribing;
+
+  const VoiceInputDialog({
+    super.key,
+    required this.status,
+    required this.isRecording,
+    required this.isTranscribing,
+  });
+
+  @override
+  State<VoiceInputDialog> createState() => _VoiceInputDialogState();
+}
+
+class _VoiceInputDialogState extends State<VoiceInputDialog> with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    if (widget.isRecording) {
+      _pulseController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(VoiceInputDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isRecording && !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    } else if (!widget.isRecording) {
+      _pulseController.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Size screenSize = MediaQuery.of(context).size;
+    final double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.4), // Less dim background
+      child: Align(
+        alignment: const Alignment(0, -0.5), // Shifted upwards
+        child: Container(
+          width: 320.0 * scale,
+          height: 200.0 * scale,
+          padding: EdgeInsets.all(16.0 * scale),
+          decoration: AppStyles.glassDecoration(
+            radius: 16.0 * scale,
+            borderColor: AppStyles.primaryAccent,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (context, child) {
+                  return Container(
+                    width: 75.0 * scale,
+                    height: 75.0 * scale,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppStyles.primaryAccent.withValues(
+                        alpha: widget.isRecording ? (0.4 / _pulseAnimation.value) : 0.2,
+                      ),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 55.0 * scale * (widget.isRecording ? (_pulseAnimation.value * 0.8) : 1.0),
+                        height: 55.0 * scale * (widget.isRecording ? (_pulseAnimation.value * 0.8) : 1.0),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppStyles.primaryAccent,
+                        ),
+                        child: Icon(
+                          widget.isTranscribing ? Icons.sync : Icons.mic,
+                          color: AppStyles.backgroundEnd,
+                          size: 26.0 * scale,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              SizedBox(height: 16.0 * scale),
+              Text(
+                widget.status,
+                style: AppStyles.titleLarge.copyWith(
+                  color: AppStyles.textPrimary,
+                  fontSize: 15.0 * scale,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (widget.isRecording) ...[
+                SizedBox(height: 8.0 * scale),
+                Text(
+                  "Hãy nói gì đó...",
+                  style: AppStyles.caption.copyWith(
+                    color: AppStyles.textSecondary,
+                    fontSize: 12.0 * scale,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

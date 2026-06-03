@@ -70,7 +70,7 @@ void main() async {
           ),
         ),
         ChangeNotifierProvider<ConversationViewModel>(
-          create: (_) => ConversationViewModel(llmService, speechService),
+          create: (_) => ConversationViewModel(llmService, speechService, ruleEngineService),
         ),
         ChangeNotifierProvider<ResultViewModel>(
           create: (_) => ResultViewModel(ruleEngineService, llmService),

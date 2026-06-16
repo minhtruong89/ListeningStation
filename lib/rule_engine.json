@@ -41,8 +41,8 @@
     },
     {
       "id": "SYS008",
-      "hardware_error_allowed": false,
-      "message_vi": "Phát hiện lỗi phần cứng."
+      "tts_check": true,
+      "message_vi": "Kiểm tra TTS API"
     }
   ],
 

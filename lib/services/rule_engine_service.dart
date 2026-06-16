@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart';
@@ -123,7 +125,7 @@ class RuleEngineService implements IRuleEngineService {
       if (rules != null) {
         for (var rule in rules) {
           final String id = rule['id'] ?? "";
-          final String messageVi = rule['message_vi'] ?? "";
+          String messageVi = rule['message_vi'] ?? "";
 
           bool isValid = true;
           switch (id) {
@@ -149,7 +151,12 @@ class RuleEngineService implements IRuleEngineService {
               isValid = await _checkFinancialLimitsAsync();
               break;
             case "SYS008":
-              isValid = true; // Hardware error allowed (mock true)
+              isValid = await _checkTtsAsync(onProgress: onProgress);
+              if (!isValid) {
+                messageVi = _speechService.flagLocalTTS 
+                    ? "Không tìm thấy dịch vụ Google Speech Services (TTS) trên thiết bị" 
+                    : "Thiếu OpenAI API Key cho TTS";
+              }
               break;
           }
 
@@ -501,6 +508,41 @@ class RuleEngineService implements IRuleEngineService {
     } catch (e) {
       debugPrint("[SYS005] Error in UART communication check: $e");
       return false;
+    }
+  }
+
+  Future<bool> _checkTtsAsync({Function(RuleCheckResult)? onProgress}) async {
+    if (_speechService.flagLocalTTS) {
+      if (Platform.isAndroid) {
+        try {
+          final tts = FlutterTts();
+          final List<dynamic>? engines = await tts.getEngines;
+          if (engines == null || engines.isEmpty) {
+            debugPrint("[SYS008] No TTS engines found on Android.");
+            return false;
+          }
+          debugPrint("[SYS008] Found TTS engines: $engines");
+          return true;
+        } catch (e) {
+          debugPrint("[SYS008] Error checking TTS engines: $e");
+          return false;
+        }
+      }
+      return true; // Native TTS is always built-in on non-Android platforms
+    } else {
+      try {
+        final keyFile = File(join(_dataDir, "openAI_key.json"));
+        if (!keyFile.existsSync()) return false;
+        final jsonStr = await keyFile.readAsString();
+        final doc = jsonDecode(jsonStr);
+        if (doc is Map && doc.containsKey('OpenAI')) {
+          final apiKey = doc['OpenAI']['ApiKey']?.toString();
+          return apiKey != null && apiKey.isNotEmpty;
+        }
+        return false;
+      } catch (_) {
+        return false;
+      }
     }
   }
 }

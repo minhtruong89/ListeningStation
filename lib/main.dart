@@ -9,6 +9,7 @@ import 'services/qr_service.dart';
 import 'services/llm_service.dart';
 import 'services/rule_engine_service.dart';
 import 'services/speech_service.dart';
+import 'services/speech_manager.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/conversation_viewmodel.dart';
@@ -30,7 +31,7 @@ void main() async {
   final cameraService = CameraService();
   final ocrService = OCRService();
   final qrService = QRService();
-  final speechService = SpeechService();
+  final speechService = SpeechManager();
   final authService = AuthService(dataService);
   final llmService = LLMService();
   final ruleEngineService = RuleEngineService(

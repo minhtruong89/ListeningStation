@@ -171,7 +171,7 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> handleQrScanned(String rawQr) async {
-    debugPrint("[AuthViewModel] QR Scanned callback triggered. Raw QR payload: '$rawQr'");
+    //debugPrint("[AuthViewModel] QR Scanned callback triggered. Raw QR payload: '$rawQr'");
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
     _ruleStatusText = "Đang đọc mã QR...";
@@ -179,11 +179,11 @@ class AuthViewModel extends ChangeNotifier {
  
     try {
       final cleanQr = _qrService.decodeQrCode(rawQr);
-      debugPrint("[AuthViewModel] QR Decoded result: '$cleanQr'");
+      //debugPrint("[AuthViewModel] QR Decoded result: '$cleanQr'");
       if (cleanQr != null && cleanQr.isNotEmpty) {
         await _verifyAndNavigateAsync(cleanQr);
       } else {
-        debugPrint("[AuthViewModel] Warning: QR decoded result is null or empty");
+        //debugPrint("[AuthViewModel] Warning: QR decoded result is null or empty");
       }
     } finally {
       _isProcessing = false;
@@ -192,7 +192,7 @@ class AuthViewModel extends ChangeNotifier {
   }
  
   Future<void> handleOcrScanned(String imagePath) async {
-    debugPrint("[AuthViewModel] OCR Image trigger. Image path: '$imagePath'");
+    //debugPrint("[AuthViewModel] OCR Image trigger. Image path: '$imagePath'");
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
     _ruleStatusText = "Đang nhận dạng văn bản...";
@@ -200,12 +200,12 @@ class AuthViewModel extends ChangeNotifier {
  
     try {
       final ocrText = await _ocrService.extractTextAsync(imagePath);
-      debugPrint("[AuthViewModel] OCR Extracted raw text length: ${ocrText.length} characters");
-      debugPrint("[AuthViewModel] OCR Extracted content:\n$ocrText");
+      //debugPrint("[AuthViewModel] OCR Extracted raw text length: ${ocrText.length} characters");
+      //debugPrint("[AuthViewModel] OCR Extracted content:\n$ocrText"); // TODO TEST
       if (ocrText.isNotEmpty && ocrText.length > 5) {
         await _verifyAndNavigateAsync(ocrText);
       } else {
-        debugPrint("[AuthViewModel] Warning: OCR extracted text too short (< 5 chars) or empty. Skipping verification.");
+        //debugPrint("[AuthViewModel] Warning: OCR extracted text too short (< 5 chars) or empty. Skipping verification.");
       }
     } finally {
       _isProcessing = false;
@@ -221,14 +221,14 @@ class AuthViewModel extends ChangeNotifier {
     try {
       final ocrText = await _ocrService.extractFromInputImage(inputImage);
       if (ocrText.isNotEmpty && ocrText.length > 5) {
-        debugPrint("[AuthViewModel] Live Stream OCR Extracted raw text length: ${ocrText.length} characters");
-        debugPrint("[AuthViewModel] Live Stream OCR Extracted content:\n$ocrText");
+        //debugPrint("[AuthViewModel] Live Stream OCR Extracted raw text length: ${ocrText.length} characters");
+        //debugPrint("[AuthViewModel] Live Stream OCR Extracted content:\n$ocrText");
         
         // Scan the extracted text for any potential operator matching info (like name or ID number)
         await _verifyAndNavigateAsync(ocrText);
       }
     } catch (e) {
-      debugPrint("[AuthViewModel] Error in Live Stream OCR: $e");
+      //debugPrint("[AuthViewModel] Error in Live Stream OCR: $e");
     } finally {
       _isProcessing = false;
       notifyListeners();
@@ -320,7 +320,7 @@ class AuthViewModel extends ChangeNotifier {
         try {
           await _dataService.recordOperatorVerificationAsync(op.id);
         } catch (dbEx) {
-          debugPrint("[AuthViewModel] DB Error recording verification: $dbEx");
+          //debugPrint("[AuthViewModel] DB Error recording verification: $dbEx");
         }
       }
 

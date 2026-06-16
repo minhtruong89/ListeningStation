@@ -93,8 +93,12 @@ class MainViewModel extends ChangeNotifier {
 
     final ruleResults = await _ruleEngine.evaluateSystemRulesAsync(
       onProgress: (result) {
-        final status = result.isValid ? "PASS" : "fail - ${result.message}";
-        _startupCheckLogs.add("${result.id} - $status");
+        final status = result.isValid ? "PASS" : result.message;
+        if (_startupCheckLogs.isNotEmpty && _startupCheckLogs.last.startsWith("${result.id} -")) {
+          _startupCheckLogs[_startupCheckLogs.length - 1] = "${result.id} - $status";
+        } else {
+          _startupCheckLogs.add("${result.id} - $status");
+        }
         notifyListeners();
       },
     );

@@ -237,7 +237,7 @@ class _AuthViewState extends State<AuthView> {
 
     String? tempFilePath;
     try {
-      debugPrint("[AuthView-Fallback] Grabbing frame via viewport screenshot...");
+      //debugPrint("[AuthView-Fallback] Grabbing frame via viewport screenshot...");
       final pngBytes = await _capturePreviewScreenshot();
       if (pngBytes == null) {
         throw Exception("Failed to capture viewport screenshot");
@@ -265,7 +265,7 @@ class _AuthViewState extends State<AuthView> {
       final tempFile = File('${tempDir.path}/temp_scan_${DateTime.now().millisecondsSinceEpoch}.jpg');
       await tempFile.writeAsBytes(jpegBytes);
       tempFilePath = tempFile.path;
-      debugPrint("[AuthView-Fallback] Frame saved to temp file: $tempFilePath");
+      //debugPrint("[AuthView-Fallback] Frame saved to temp file: $tempFilePath");
 
       // TODO TEST Copy to public directory for verification with unique timestamp
       /*try {
@@ -288,7 +288,7 @@ class _AuthViewState extends State<AuthView> {
       }*/
 
       // 1. Analyze for Barcodes / QR Code using a temp instance of MobileScannerController
-      debugPrint("[AuthView-Fallback] Starting QR detection on captured frame...");
+      //debugPrint("[AuthView-Fallback] Starting QR detection on captured frame...");
       final tempController = MobileScannerController();
       final BarcodeCapture? barcodeCapture = await tempController.analyzeImage(tempFilePath);
       await tempController.dispose();
@@ -296,7 +296,7 @@ class _AuthViewState extends State<AuthView> {
       if (barcodeCapture != null && barcodeCapture.barcodes.isNotEmpty) {
         final rawValue = barcodeCapture.barcodes.first.rawValue;
         if (rawValue != null) {
-          debugPrint("[AuthView-Fallback] SUCCESS: QR Code found in image: $rawValue");
+          //debugPrint("[AuthView-Fallback] SUCCESS: QR Code found in image: $rawValue");
           await authVm.handleQrScanned(rawValue);
           
           try {
@@ -306,7 +306,7 @@ class _AuthViewState extends State<AuthView> {
         }
       }
 
-      debugPrint("[AuthView-Fallback] No QR code detected in frame. Proceeding to OCR scanning...");
+      //debugPrint("[AuthView-Fallback] No QR code detected in frame. Proceeding to OCR scanning...");
 
       // 2. Process live OCR using file path
       await authVm.handleOcrScanned(tempFilePath);

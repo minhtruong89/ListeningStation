@@ -14,6 +14,8 @@ abstract class ISpeechService {
   set isMuted(bool value);
   bool get flagSendUART;
   set flagSendUART(bool value);
+  bool get flagLocalTTS;
+  set flagLocalTTS(bool value);
   void setUartDevice(int vendorId, int productId);
 }
 
@@ -45,6 +47,12 @@ class SpeechService implements ISpeechService {
 
   @override
   set flagSendUART(bool value) => _flagSendUART = value;
+
+  @override
+  bool get flagLocalTTS => false;
+
+  @override
+  set flagLocalTTS(bool value) {}
 
   @override
   void setUartDevice(int vendorId, int productId) {

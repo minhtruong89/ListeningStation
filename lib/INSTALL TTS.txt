@@ -1,5 +1,11 @@
 Download apk https://www.apkmirror.com/apk/google-inc/google-text-to-speech-engine/
 
-adb install-multiple (Get-ChildItem -Path .\com.google.android.tts_20260524 -Filter *.apk).FullName
+// Box HiNet
+adb install-multiple (Get-ChildItem -Path .\com.google.android.tts_20260524_ arm64-v8a -Filter *.apk).FullName
+
+// Box Xiaomi
+adb install-multiple (Get-ChildItem -Path .\com.google.android.tts_20260511_arm-v7a -Filter *.apk).FullName
+
+adb shell settings put secure tts_default_synth com.google.android.tts
 
 adb shell am start -a android.settings.TTS_SETTINGS

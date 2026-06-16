@@ -196,9 +196,15 @@ class LocalSpeechService implements ISpeechService {
       }
 
       await _tts!.setLanguage(targetLang);
-      await _tts!.setSpeechRate(speed);
-      await _tts!.setPitch(pitch);
-      await _tts!.setVolume(volume);
+      if (speed != 1.0) {
+        await _tts!.setSpeechRate(speed);
+      }
+      if (pitch != 1.0) {
+        await _tts!.setPitch(pitch);
+      }
+      if (volume != 1.0) {
+        await _tts!.setVolume(volume);
+      }
 
       await _tts!.speak(text);
     } catch (e) {

@@ -253,7 +253,7 @@ class MainViewModel extends ChangeNotifier {
 
         // detect camera micro targetName
         const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
-        final List<String> targets = ["UGREEN", "Camera", "Logi"];
+        final List<String> targets = ["UGREEN", "Camera", "Logi", "USB-Audio"];
         
         int targetIndex = -1;
         String targetDeviceName = "Unknown Device";

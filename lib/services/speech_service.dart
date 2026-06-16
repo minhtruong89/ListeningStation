@@ -25,7 +25,7 @@ class SpeechService implements ISpeechService {
   final AudioPlayer _audioPlayer = AudioPlayer();
   
   bool _isMuted = false;
-  bool _flagSendUART = true;
+  bool _flagSendUART = false;
   String? _apiKey;
   late String _dataDir;
   late String _tempMp3Path;

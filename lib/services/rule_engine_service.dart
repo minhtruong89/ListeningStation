@@ -49,6 +49,7 @@ abstract class IRuleEngineService {
 
 class RuleEngineService implements IRuleEngineService {
   final ILLMService _llmService;
+  final ISpeechService _speechService;
   final ICameraService _cameraService;
   final IDataService _dataService;
   final IAuthService _authService;
@@ -67,6 +68,7 @@ class RuleEngineService implements IRuleEngineService {
 
   RuleEngineService(
     this._llmService,
+    this._speechService,
     this._cameraService,
     this._dataService,
     this._authService, {
@@ -138,7 +140,7 @@ class RuleEngineService implements IRuleEngineService {
               isValid = await _checkMicrophoneDeviceAsync();
               break;
             case "SYS005":
-              isValid = await _checkUartSendTextNoAsync();
+              isValid = _speechService.flagSendUART ? await _checkUartSendTextNoAsync() : true;
               break;
             case "SYS006":
               isValid = File(join(_dataDir, 'listening_station.db')).existsSync();
@@ -402,7 +404,7 @@ class RuleEngineService implements IRuleEngineService {
         }
 
         const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
-        final List<String> targets = ["UGREEN", "Camera", "Logi"];
+        final List<String> targets = ["UGREEN", "Camera", "Logi", "USB-Audio"];
 
         final Map<dynamic, dynamic>? devices = await channel.invokeMethod<Map<dynamic, dynamic>>('getAudioDevices');
         if (devices != null) {

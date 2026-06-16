@@ -35,6 +35,7 @@ void main() async {
   final llmService = LLMService();
   final ruleEngineService = RuleEngineService(
     llmService,
+    speechService,
     cameraService,
     dataService,
     authService,

@@ -289,12 +289,16 @@ class MainViewModel extends ChangeNotifier {
           final String path = "/sdcard/Download/testMic_$timestamp.m4a";
           debugPrint("[Hardware Check] Found matching input device '$targetDeviceName' at index $targetIndex. Attempting to record 5s of audio to: $path");
           
-          final bool? success = await channel.invokeMethod<bool>('recordAudioAtDevice', {
+          final bool? success = await channel.invokeMethod<bool>('startRecording', {
             'filePath': path,
             'deviceIndex': targetIndex,
-            'durationMs': 5000,
           });
-          debugPrint("[Hardware Check] Record audio success status: $success");
+          debugPrint("[Hardware Check] Start recording success status: $success");
+          if (success == true) {
+            await Future.delayed(const Duration(seconds: 5));
+            final bool? stopSuccess = await channel.invokeMethod<bool>('stopRecording');
+            debugPrint("[Hardware Check] Stop recording success status: $stopSuccess");
+          }
         } else {
           debugPrint("[Hardware Check] No input device containing any of $targets was found. Skip recording.");
         }

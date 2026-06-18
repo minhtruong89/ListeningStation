@@ -201,7 +201,7 @@ class AuthViewModel extends ChangeNotifier {
     try {
       final ocrText = await _ocrService.extractTextAsync(imagePath);
       //debugPrint("[AuthViewModel] OCR Extracted raw text length: ${ocrText.length} characters");
-      //debugPrint("[AuthViewModel] OCR Extracted content:\n$ocrText"); // TODO TEST
+      debugPrint("[AuthViewModel] OCR Extracted content:\n$ocrText");
       if (ocrText.isNotEmpty && ocrText.length > 5) {
         await _verifyAndNavigateAsync(ocrText);
       } else {

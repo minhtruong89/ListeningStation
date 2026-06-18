@@ -238,9 +238,9 @@ class ConversationViewModel extends ChangeNotifier {
     if (_isVoiceInputActive) return null;
 
     _isVoiceInputActive = true;
-    _isVoiceRecording = true;
+    _isVoiceRecording = false; // Popup is kept hidden during prepare
     _isVoiceTranscribing = false;
-    _voiceInputStatus = "Đang lắng nghe...";
+    _voiceInputStatus = "Chuẩn bị micro...";
     notifyListeners();
 
     try {
@@ -252,32 +252,47 @@ class ConversationViewModel extends ChangeNotifier {
       final String path = "/sdcard/Download/voice_input.m4a";
       const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
       
-      debugPrint("[Voice Input] Recording on device index $deviceIndex to path: $path");
-      final bool? success = await channel.invokeMethod<bool>('recordAudioAtDevice', {
+      debugPrint("[Voice Input] Starting recording on device index $deviceIndex to path: $path");
+      
+      final bool? startSuccess = await channel.invokeMethod<bool>('startRecording', {
         'filePath': path,
         'deviceIndex': deviceIndex,
-        'durationMs': 5000,
       });
 
-      if (success == true) {
-        _isVoiceRecording = false;
-        _isVoiceTranscribing = true;
-        _voiceInputStatus = "Đang nhận diện...";
+      if (startSuccess == true) {
+        // Micro is ready! Now show the popup to prompt speaking
+        _isVoiceRecording = true;
+        _voiceInputStatus = "Đang lắng nghe...";
         notifyListeners();
 
-        debugPrint("[Voice Input] Sending audio for transcription...");
-        final String text = await _llmService.transcribeAudioAsync(path);
-        debugPrint("[Voice Input] Transcribed text: $text");
+        // Record for 5 seconds
+        await Future.delayed(const Duration(seconds: 5));
 
-        _isVoiceInputActive = false;
-        _isVoiceTranscribing = false;
-        notifyListeners();
-        return text;
-      } else {
-        _voiceInputStatus = "Lỗi thu âm từ thiết bị.";
-        notifyListeners();
-        await Future.delayed(const Duration(seconds: 2));
+        // Stop the recorder
+        final bool? stopSuccess = await channel.invokeMethod<bool>('stopRecording');
+
+        if (stopSuccess == true) {
+          _isVoiceRecording = false;
+          _isVoiceTranscribing = true;
+          _voiceInputStatus = "Đang nhận diện...";
+          notifyListeners();
+
+          debugPrint("[Voice Input] Sending audio for transcription...");
+          final String text = await _llmService.transcribeAudioAsync(path);
+          debugPrint("[Voice Input] Transcribed text: $text");
+
+          _isVoiceInputActive = false;
+          _isVoiceTranscribing = false;
+          notifyListeners();
+          return text;
+        }
       }
+      
+      _isVoiceRecording = false;
+      _isVoiceInputActive = false;
+      _voiceInputStatus = "Lỗi thu âm từ thiết bị.";
+      notifyListeners();
+      await Future.delayed(const Duration(seconds: 2));
     } catch (e) {
       debugPrint("[Voice Input] Error: $e");
       _voiceInputStatus = "Lỗi xảy ra: $e";

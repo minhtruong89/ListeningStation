@@ -22,6 +22,8 @@ import android.hardware.usb.UsbManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.media.ToneGenerator
+import android.view.WindowManager
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.soncamedia.listeningstation/audio_devices"
@@ -58,6 +60,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -86,13 +89,15 @@ class MainActivity : FlutterActivity() {
                     val success = playMp3AtDevice(filePath, deviceIndex)
                     result.success(success)
                 }
-                "recordAudioAtDevice" -> {
+                "startRecording" -> {
                     val filePath = call.argument<String>("filePath") ?: ""
                     val deviceIndex = call.argument<Int>("deviceIndex") ?: 0
-                    val durationMs = call.argument<Number>("durationMs")?.toLong() ?: 5000L
-                    recordAudioAtDevice(filePath, deviceIndex, durationMs) { success ->
-                        result.success(success)
-                    }
+                    val success = startRecording(filePath, deviceIndex)
+                    result.success(success)
+                }
+                "stopRecording" -> {
+                    val success = stopRecording()
+                    result.success(success)
                 }
                 "getUsbSerialDevices" -> {
                     val serialDevicesList = getConnectedUsbSerialDevices()
@@ -184,7 +189,17 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun recordAudioAtDevice(filePath: String, deviceIndex: Int, durationMs: Long, callback: (Boolean) -> Unit) {
+    private var activeRecorder: MediaRecorder? = null
+
+    private fun startRecording(filePath: String, deviceIndex: Int): Boolean {
+        if (activeRecorder != null) {
+            try {
+                activeRecorder?.stop()
+                activeRecorder?.release()
+            } catch (e: Exception) {}
+            activeRecorder = null
+        }
+
         val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(this)
         } else {
@@ -196,9 +211,12 @@ class MainActivity : FlutterActivity() {
             val file = java.io.File(filePath)
             file.parentFile?.mkdirs()
 
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+            recorder.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            recorder.setAudioSamplingRate(16000)
+            recorder.setAudioEncodingBitRate(32000)
+            recorder.setAudioChannels(1)
             recorder.setOutputFile(filePath)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -215,28 +233,37 @@ class MainActivity : FlutterActivity() {
 
             recorder.prepare()
             recorder.start()
-
-            Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    recorder.stop()
-                    recorder.release()
-                    android.util.Log.d("AudioRecord", "Recording finished and saved to $filePath")
-                    callback(true)
-                } catch (e: Exception) {
-                    android.util.Log.e("AudioRecord", "Error stopping recorder: ${e.message}", e)
-                    try {
-                        recorder.release()
-                    } catch (ex: Exception) {}
-                    callback(false)
-                }
-            }, durationMs)
-
+            activeRecorder = recorder
+            android.util.Log.d("AudioRecord", "Recording started successfully on device $deviceIndex")
+            return true
         } catch (e: Exception) {
             android.util.Log.e("AudioRecord", "Error during recording setup: ${e.message}", e)
             try {
                 recorder.release()
             } catch (ex: Exception) {}
-            callback(false)
+            return false
+        }
+    }
+
+    private fun stopRecording(): Boolean {
+        val recorder = activeRecorder
+        if (recorder == null) {
+            android.util.Log.w("AudioRecord", "stopRecording called but activeRecorder is null")
+            return false
+        }
+        try {
+            recorder.stop()
+            recorder.release()
+            activeRecorder = null
+            android.util.Log.d("AudioRecord", "Recording stopped and released successfully")
+            return true
+        } catch (e: Exception) {
+            android.util.Log.e("AudioRecord", "Error stopping recorder: ${e.message}", e)
+            try {
+                recorder.release()
+            } catch (ex: Exception) {}
+            activeRecorder = null
+            return false
         }
     }
 

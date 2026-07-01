@@ -103,6 +103,22 @@ class MainActivity : FlutterActivity() {
                     val serialDevicesList = getConnectedUsbSerialDevices()
                     result.success(serialDevicesList)
                 }
+                "getAllUsbDevices" -> {
+                    val list = mutableListOf<Map<String, Any>>()
+                    val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+                    val deviceList = usbManager.deviceList
+                    for (device in deviceList.values) {
+                        val map = mapOf(
+                            "name" to (device.productName ?: "USB Device"),
+                            "vendorId" to device.vendorId,
+                            "productId" to device.productId,
+                            "deviceClass" to device.deviceClass,
+                            "deviceSubclass" to device.deviceSubclass
+                        )
+                        list.add(map)
+                    }
+                    result.success(list)
+                }
                 "requestUsbPermission" -> {
                     val vendorId = call.argument<Int>("vendorId") ?: 0
                     val productId = call.argument<Int>("productId") ?: 0
@@ -325,8 +341,11 @@ class MainActivity : FlutterActivity() {
         } else {
             0
         }
+        val intent = Intent(ACTION_USB_PERMISSION).apply {
+            setPackage(packageName)
+        }
         val permissionIntent = PendingIntent.getBroadcast(
-            this, 0, Intent(ACTION_USB_PERMISSION), flags
+            this, 0, intent, flags
         )
         usbManager.requestPermission(targetDevice, permissionIntent)
     }

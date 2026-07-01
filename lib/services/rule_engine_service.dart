@@ -455,6 +455,21 @@ class RuleEngineService implements IRuleEngineService {
         const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
         debugPrint("[SYS005] Scanning for USB Serial devices...");
         
+        try {
+          final List<dynamic>? allDevices = await channel.invokeMethod<List<dynamic>>('getAllUsbDevices');
+          if (allDevices != null && allDevices.isNotEmpty) {
+            debugPrint("[SYS005] Connected USB hardware list (before filtering):");
+            for (var dev in allDevices) {
+              final d = dev as Map<dynamic, dynamic>;
+              debugPrint("  -> ${d['name']} | VID: 0x${(d['vendorId'] as int).toRadixString(16).toUpperCase()} (${d['vendorId']}) | PID: 0x${(d['productId'] as int).toRadixString(16).toUpperCase()} (${d['productId']}) | Class: ${d['deviceClass']}");
+            }
+          } else {
+            debugPrint("[SYS005] No physical USB devices detected.");
+          }
+        } catch (e) {
+          debugPrint("[SYS005] Error querying connected USB devices: $e");
+        }
+
         final List<dynamic>? serialDevices = await channel.invokeMethod<List<dynamic>>('getUsbSerialDevices');
         if (serialDevices != null && serialDevices.isNotEmpty) {
           final Map<dynamic, dynamic> firstDevice = serialDevices.first as Map<dynamic, dynamic>;

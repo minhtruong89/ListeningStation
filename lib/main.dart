@@ -10,13 +10,18 @@ import 'services/llm_service.dart';
 import 'services/rule_engine_service.dart';
 import 'services/speech_service.dart';
 import 'services/speech_manager.dart';
+import 'services/log_service.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/conversation_viewmodel.dart';
 import 'viewmodels/result_viewmodel.dart';
 import 'views/main_view.dart';
+import 'views/log_console_overlay.dart';
 
 void main() async {
+  // Initialize custom logs capturing
+  LogService.initialize();
+
   // Ensure native bindings are fully up
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -98,6 +103,9 @@ class ListeningStationApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF020617),
         fontFamily: 'Roboto', // Modern standard clean typeface
       ),
+      builder: (context, child) {
+        return LogConsoleOverlay(child: child ?? const SizedBox());
+      },
       home: const MainView(),
     );
   }

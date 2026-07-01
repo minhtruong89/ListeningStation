@@ -12,8 +12,6 @@ abstract class ISpeechService {
   void stop();
   bool get isMuted;
   set isMuted(bool value);
-  bool get flagSendUART;
-  set flagSendUART(bool value);
   bool get flagLocalTTS;
   set flagLocalTTS(bool value);
   void setUartDevice(int vendorId, int productId);
@@ -22,12 +20,12 @@ abstract class ISpeechService {
 class SpeechService implements ISpeechService {
   static int? uartVid;
   static int? uartPid;
+  static bool flagSendUARTGlobal = true;
 
   final http.Client _httpClient;
   final AudioPlayer _audioPlayer = AudioPlayer();
   
   bool _isMuted = false;
-  bool _flagSendUART = false;
   String? _apiKey;
   late String _dataDir;
   late String _tempMp3Path;
@@ -41,12 +39,6 @@ class SpeechService implements ISpeechService {
 
   @override
   set isMuted(bool value) => _isMuted = value;
-
-  @override
-  bool get flagSendUART => _flagSendUART;
-
-  @override
-  set flagSendUART(bool value) => _flagSendUART = value;
 
   @override
   bool get flagLocalTTS => false;
@@ -97,7 +89,7 @@ class SpeechService implements ISpeechService {
         await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
           'vendorId': uartVid,
           'productId': uartPid,
-          'baudRate': 9600,
+          'baudRate': 115200,
           'testMessage': msg,
         });
         debugPrint("[SpeechService UART] Sent '$msg' successfully using cached device (VID: 0x${uartVid!.toRadixString(16).toUpperCase()}).");
@@ -115,7 +107,7 @@ class SpeechService implements ISpeechService {
           await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
             'vendorId': uartVid,
             'productId': uartPid,
-            'baudRate': 9600,
+            'baudRate': 115200,
             'testMessage': msg,
           });
           debugPrint("[SpeechService UART] Sent '$msg' and cached device.");
@@ -176,12 +168,12 @@ class SpeechService implements ISpeechService {
       // Delay play by a brief 200ms to ensure device channel is ready
       await Future.delayed(const Duration(milliseconds: 200));
 
-      if (_flagSendUART) {
-        await _sendUartMessage("YES\n");
+      if (flagSendUARTGlobal) {
+        await _sendUartMessage("SAY\n");
       }
       await _audioPlayer.play();
-      if (_flagSendUART) {
-        await _sendUartMessage("NO\n");
+      if (flagSendUARTGlobal) {
+        await _sendUartMessage("SIL\n");
       }
     } catch (e) {
       debugPrint("OpenAI TTS Error: $e");
@@ -192,8 +184,8 @@ class SpeechService implements ISpeechService {
   void stop() {
     try {
       _audioPlayer.stop();
-      if (_flagSendUART) {
-        _sendUartMessage("NO\n");
+      if (flagSendUARTGlobal) {
+        _sendUartMessage("SIL\n");
       }
     } catch (e) {
       debugPrint("Error stopping audio player: $e");

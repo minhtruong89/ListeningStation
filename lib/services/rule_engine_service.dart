@@ -142,7 +142,7 @@ class RuleEngineService implements IRuleEngineService {
               isValid = await _checkMicrophoneDeviceAsync();
               break;
             case "SYS005":
-              isValid = _speechService.flagSendUART ? await _checkUartSendTextNoAsync() : true;
+              isValid = SpeechService.flagSendUARTGlobal ? await _checkUartSendTextNoAsync() : true;
               break;
             case "SYS006":
               isValid = File(join(_dataDir, 'listening_station.db')).existsSync();
@@ -481,7 +481,7 @@ class RuleEngineService implements IRuleEngineService {
           final Map<dynamic, dynamic>? testResult = await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
             'vendorId': vid,
             'productId': pid,
-            'baudRate': 9600,
+            'baudRate': 115200,
             'testMessage': "NO\n",
           });
           

@@ -9,7 +9,6 @@ class LocalSpeechService implements ISpeechService {
   FlutterTts? _tts;
   
   bool _isMuted = false;
-  bool _flagSendUART = false;
 
   // Configuration variables managed directly in code
   String languageCode = "vi"; // Vietnamese ("vi-VN")
@@ -32,12 +31,6 @@ class LocalSpeechService implements ISpeechService {
   set isMuted(bool value) => _isMuted = value;
 
   @override
-  bool get flagSendUART => _flagSendUART;
-
-  @override
-  set flagSendUART(bool value) => _flagSendUART = value;
-
-  @override
   bool get flagLocalTTS => true;
 
   @override
@@ -58,29 +51,29 @@ class LocalSpeechService implements ISpeechService {
       // Configure handlers for UART state matching speaking activity
       ttsInstance.setStartHandler(() {
         debugPrint("[LocalSpeechService] Speech started.");
-        if (_flagSendUART) {
-          _sendUartMessage("YES\n");
+        if (SpeechService.flagSendUARTGlobal) {
+          _sendUartMessage("SAY\n");
         }
       });
 
       ttsInstance.setCompletionHandler(() {
         debugPrint("[LocalSpeechService] Speech completed.");
-        if (_flagSendUART) {
-          _sendUartMessage("NO\n");
+        if (SpeechService.flagSendUARTGlobal) {
+          _sendUartMessage("SIL\n");
         }
       });
 
       ttsInstance.setCancelHandler(() {
         debugPrint("[LocalSpeechService] Speech cancelled.");
-        if (_flagSendUART) {
-          _sendUartMessage("NO\n");
+        if (SpeechService.flagSendUARTGlobal) {
+          _sendUartMessage("SIL\n");
         }
       });
 
       ttsInstance.setErrorHandler((message) {
         debugPrint("[LocalSpeechService] Native TTS Error: $message");
-        if (_flagSendUART) {
-          _sendUartMessage("NO\n");
+        if (SpeechService.flagSendUARTGlobal) {
+          _sendUartMessage("SIL\n");
         }
       });
 
@@ -127,7 +120,7 @@ class LocalSpeechService implements ISpeechService {
         await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
           'vendorId': SpeechService.uartVid,
           'productId': SpeechService.uartPid,
-          'baudRate': 9600,
+          'baudRate': 115200,
           'testMessage': msg,
         });
         debugPrint("[LocalSpeechService UART] Sent '$msg' successfully using cached device (VID: 0x${SpeechService.uartVid!.toRadixString(16).toUpperCase()}).");
@@ -144,7 +137,7 @@ class LocalSpeechService implements ISpeechService {
           await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
             'vendorId': SpeechService.uartVid,
             'productId': SpeechService.uartPid,
-            'baudRate': 9600,
+            'baudRate': 115200,
             'testMessage': msg,
           });
           debugPrint("[LocalSpeechService UART] Sent '$msg' and cached device.");
@@ -224,8 +217,8 @@ class LocalSpeechService implements ISpeechService {
   void stop() {
     try {
       _tts?.stop();
-      if (_flagSendUART) {
-        _sendUartMessage("NO\n");
+      if (SpeechService.flagSendUARTGlobal) {
+        _sendUartMessage("SIL\n");
       }
     } catch (e) {
       debugPrint("[LocalSpeechService] Error stopping audio: $e");

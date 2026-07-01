@@ -26,17 +26,6 @@ class SpeechManager implements ISpeechService {
   }
 
   @override
-  bool get flagSendUART {
-    return flagLocalTTS ? _localSpeechService.flagSendUART : _openaiSpeechService.flagSendUART;
-  }
-
-  @override
-  set flagSendUART(bool value) {
-    _openaiSpeechService.flagSendUART = value;
-    _localSpeechService.flagSendUART = value;
-  }
-
-  @override
   void setUartDevice(int vendorId, int productId) {
     _openaiSpeechService.setUartDevice(vendorId, productId);
     _localSpeechService.setUartDevice(vendorId, productId);

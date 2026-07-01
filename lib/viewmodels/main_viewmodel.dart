@@ -346,7 +346,7 @@ class MainViewModel extends ChangeNotifier {
             final Map<dynamic, dynamic>? testResult = await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
               'vendorId': vid,
               'productId': pid,
-              'baudRate': 9600,
+              'baudRate': 115200,
               'testMessage': "NO\n",
             });
             

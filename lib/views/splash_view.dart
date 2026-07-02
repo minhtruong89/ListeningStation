@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/styles.dart';
+import 'package:flutter/services.dart';
 import '../viewmodels/main_viewmodel.dart';
+import '../services/log_service.dart';
 
 class SplashView extends StatefulWidget {
   const SplashView({super.key});
@@ -13,7 +15,7 @@ class SplashView extends StatefulWidget {
 class _SplashViewState extends State<SplashView> {
   late final FocusNode _retryFocusNode;
   bool _isRetryFocused = false;
-  bool _hasRequestedFocus = false;
+  bool? _prevHasError;
 
   @override
   void initState() {
@@ -26,10 +28,25 @@ class _SplashViewState extends State<SplashView> {
         });
       }
     });
+
+    // Remote control D-pad left/right navigation logic
+    _retryFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+            event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          LogService.logButtonFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+
+    LogService.retryButtonFocusNode = _retryFocusNode;
   }
 
   @override
   void dispose() {
+    LogService.retryButtonFocusNode = null;
     _retryFocusNode.dispose();
     super.dispose();
   }
@@ -152,16 +169,19 @@ class _SplashViewState extends State<SplashView> {
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
     scale = 1.4; // 1.9 - 1.4
 
-    // Request focus on the retry button if validation failed and we haven't requested it yet
-    if (!vm.isValidating && vm.errorMessage.isNotEmpty && !_hasRequestedFocus) {
-      _hasRequestedFocus = true;
+    // Request focus programmatically on the appropriate action button when state shifts
+    final bool currentHasError = !vm.isValidating && vm.errorMessage.isNotEmpty;
+    if (_prevHasError != currentHasError) {
+      _prevHasError = currentHasError;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _retryFocusNode.requestFocus();
+          if (currentHasError) {
+            _retryFocusNode.requestFocus();
+          } else {
+            LogService.logButtonFocusNode.requestFocus();
+          }
         }
       });
-    } else if (vm.isValidating) {
-      _hasRequestedFocus = false;
     }
 
     final List<List<String>> chunkedLogs = [];
@@ -190,34 +210,39 @@ class _SplashViewState extends State<SplashView> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Beautiful Glowing Logo Mockup
-                  Container(
-                    width: 80.0 * scale,
-                    height: 80.0 * scale,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: AppStyles.accentGradient,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppStyles.primaryAccent.withValues(alpha: 0.5),
-                          blurRadius: 20.0 * scale,
-                          spreadRadius: 3.0 * scale,
-                        )
-                      ]
-                    ),
-                    child: Icon(
-                      Icons.hearing,
-                      size: 40.0 * scale,
-                      color: AppStyles.textPrimary,
-                    ),
+                  // Centered Row containing both Logo and Title
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 52.0 * scale,
+                        height: 52.0 * scale,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: AppStyles.accentGradient,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppStyles.primaryAccent.withValues(alpha: 0.5),
+                              blurRadius: 15.0 * scale,
+                              spreadRadius: 2.0 * scale,
+                            )
+                          ]
+                        ),
+                        child: Icon(
+                          Icons.hearing,
+                          size: 26.0 * scale,
+                          color: AppStyles.textPrimary,
+                        ),
+                      ),
+                      SizedBox(width: 16.0 * scale),
+                      Text(
+                        "TRẠM LẮNG NGHE",
+                        style: AppStyles.titleHuge.copyWith(fontSize: 28.0 * scale),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 15.0 * scale),
-                  
-                  Text(
-                    "TRẠM LẮNG NGHE",
-                    style: AppStyles.titleHuge.copyWith(fontSize: 32.0 * scale),
-                  ),
-                  SizedBox(height: 8.0 * scale),
+                  SizedBox(height: 6.0 * scale),
                   Text(
                     "Hệ Thống Phê Duyệt Bảo Chứng Tự Động",
                     style: TextStyle(
@@ -285,7 +310,9 @@ class _SplashViewState extends State<SplashView> {
                     SizedBox(height: 24.0 * scale),
                   ],
 
+                  // Thử Lại Button
                   if (!vm.isValidating && vm.errorMessage.isNotEmpty) ...[
+                    SizedBox(height: 24.0 * scale),
                     AnimatedScale(
                       scale: _isRetryFocused ? 1.08 : 1.0,
                       duration: const Duration(milliseconds: 200),
@@ -330,8 +357,8 @@ class _SplashViewState extends State<SplashView> {
                           ),
                         ),
                       ),
-                    )
-                  ]
+                    ),
+                  ],
                 ],
               ),
             ),

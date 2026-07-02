@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/log_service.dart';
 
 class LogConsoleOverlay extends StatefulWidget {
@@ -12,6 +13,12 @@ class LogConsoleOverlay extends StatefulWidget {
 class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
   bool _isVisible = false;
   final ScrollController _scrollController = ScrollController();
+  
+  late final FocusNode _switchFocusNode;
+  late final FocusNode _scrollUpFocusNode;
+  late final FocusNode _scrollDownFocusNode;
+  late final FocusNode _clearFocusNode;
+  late final FocusNode _closeFocusNode;
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -23,6 +30,196 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
         );
       }
     });
+  }
+
+  void _scrollUp() {
+    if (_scrollController.hasClients) {
+      final double target = (_scrollController.offset - 150).clamp(0.0, _scrollController.position.maxScrollExtent);
+      _scrollController.animateTo(target, duration: const Duration(milliseconds: 150), curve: Curves.easeOut);
+    }
+  }
+
+  void _scrollDown() {
+    if (_scrollController.hasClients) {
+      final double target = (_scrollController.offset + 150).clamp(0.0, _scrollController.position.maxScrollExtent);
+      _scrollController.animateTo(target, duration: const Duration(milliseconds: 150), curve: Curves.easeOut);
+    }
+  }
+
+
+
+  @override
+  void initState() {
+    super.initState();
+    LogService.consoleVisibilityNotifier.addListener(_onVisibilityChanged);
+    LogService.logButtonFocusNode.addListener(_onFocusChanged);
+    
+    _switchFocusNode = FocusNode();
+    _scrollUpFocusNode = FocusNode();
+    _scrollDownFocusNode = FocusNode();
+    _clearFocusNode = FocusNode();
+    _closeFocusNode = FocusNode();
+
+    _switchFocusNode.addListener(_onFocusChanged);
+    _scrollUpFocusNode.addListener(_onFocusChanged);
+    _scrollDownFocusNode.addListener(_onFocusChanged);
+    _clearFocusNode.addListener(_onFocusChanged);
+    _closeFocusNode.addListener(_onFocusChanged);
+
+    // Remote control D-pad left/right navigation logic for the main trigger button
+    LogService.logButtonFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+            event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          if (LogService.retryButtonFocusNode != null && LogService.retryButtonFocusNode!.canRequestFocus) {
+            LogService.retryButtonFocusNode!.requestFocus();
+            return KeyEventResult.handled;
+          }
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+  }
+
+  @override
+  void dispose() {
+    LogService.consoleVisibilityNotifier.removeListener(_onVisibilityChanged);
+    LogService.logButtonFocusNode.removeListener(_onFocusChanged);
+    
+    _switchFocusNode.removeListener(_onFocusChanged);
+    _scrollUpFocusNode.removeListener(_onFocusChanged);
+    _scrollDownFocusNode.removeListener(_onFocusChanged);
+    _clearFocusNode.removeListener(_onFocusChanged);
+    _closeFocusNode.removeListener(_onFocusChanged);
+
+    _switchFocusNode.dispose();
+    _scrollUpFocusNode.dispose();
+    _scrollDownFocusNode.dispose();
+    _clearFocusNode.dispose();
+    _closeFocusNode.dispose();
+
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _onVisibilityChanged() {
+    if (mounted) {
+      setState(() {
+        _isVisible = LogService.consoleVisibilityNotifier.value;
+      });
+      if (_isVisible) {
+        _scrollToBottom();
+        // Shift focus to Close button when console is opened
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _closeFocusNode.requestFocus();
+          }
+        });
+      }
+    }
+  }
+
+  Widget _buildFocusableAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    required FocusNode focusNode,
+    Color? iconColor,
+  }) {
+    final hasFocus = focusNode.hasFocus;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      child: InkWell(
+        focusNode: focusNode,
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(6.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+          decoration: BoxDecoration(
+            color: hasFocus ? Colors.green : const Color(0xFF2E2E2E),
+            borderRadius: BorderRadius.circular(6.0),
+            border: Border.all(
+              color: hasFocus ? Colors.white : Colors.white24,
+              width: hasFocus ? 2.0 : 1.0,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: hasFocus ? Colors.white : (iconColor ?? Colors.greenAccent),
+                size: 16,
+              ),
+              const SizedBox(width: 6.0),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: hasFocus ? Colors.white : Colors.white70,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFocusableSwitch({
+    required String label,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required FocusNode focusNode,
+  }) {
+    final hasFocus = focusNode.hasFocus;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      child: InkWell(
+        focusNode: focusNode,
+        onTap: () => onChanged(!value),
+        borderRadius: BorderRadius.circular(6.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+          decoration: BoxDecoration(
+            color: hasFocus ? Colors.green : const Color(0xFF2E2E2E),
+            borderRadius: BorderRadius.circular(6.0),
+            border: Border.all(
+              color: hasFocus ? Colors.white : Colors.white24,
+              width: hasFocus ? 2.0 : 1.0,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                value ? Icons.check_box : Icons.check_box_outline_blank,
+                color: hasFocus ? Colors.white : Colors.greenAccent,
+                size: 16,
+              ),
+              const SizedBox(width: 6.0),
+              Text(
+                "$label: ${value ? "BẬT" : "TẮT"}",
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: hasFocus ? Colors.white : Colors.white70,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -43,31 +240,30 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
                       Positioned(
                         top: 10,
                         right: 10,
-                  child: SafeArea(
+                   child: SafeArea(
                     child: Material(
                       color: Colors.transparent,
                       child: Opacity(
-                        opacity: 0.5,
+                        opacity: LogService.logButtonFocusNode.hasFocus ? 1.0 : 0.5,
                         child: InkWell(
+                          focusNode: LogService.logButtonFocusNode,
                           onTap: () {
-                            setState(() {
-                              _isVisible = !_isVisible;
-                            });
-                            if (_isVisible) {
-                              _scrollToBottom();
-                            }
+                            LogService.consoleVisibilityNotifier.value = !_isVisible;
                           },
                           borderRadius: BorderRadius.circular(20),
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.black87,
+                              color: LogService.logButtonFocusNode.hasFocus ? Colors.green : Colors.black87,
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white24),
+                              border: Border.all(
+                                color: LogService.logButtonFocusNode.hasFocus ? Colors.white : Colors.white24,
+                                width: LogService.logButtonFocusNode.hasFocus ? 2.5 : 1.0,
+                              ),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.terminal,
-                              color: Colors.greenAccent,
+                              color: LogService.logButtonFocusNode.hasFocus ? Colors.white : Colors.greenAccent,
                               size: 20,
                             ),
                           ),
@@ -85,7 +281,7 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
                         child: Column(
                           children: [
                             // Header
-                            Container(
+                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               decoration: const BoxDecoration(
                                 border: Border(bottom: BorderSide(color: Colors.white12)),
@@ -107,51 +303,52 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
                                           color: Colors.white,
                                         ),
                                       ),
-                                      const SizedBox(width: 20),
-                                      // flagWriteLogDevice Switch
-                                      Row(
-                                        children: [
-                                          const Text(
-                                            "Ghi log:",
-                                            style: TextStyle(fontSize: 12, color: Colors.white70),
-                                          ),
-                                          Switch(
-                                            value: LogService.flagWriteLogDevice,
-                                            onChanged: (val) {
-                                              setState(() {
-                                                LogService.flagWriteLogDevice = val;
-                                              });
-                                              LogService.logUpdateNotifier.value++;
-                                            },
-                                            activeColor: Colors.greenAccent,
-                                          ),
-                                        ],
-                                      ),
                                     ],
                                   ),
                                   Row(
                                     children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.arrow_downward, color: Colors.white),
-                                        tooltip: "Cuộn xuống cuối",
-                                        onPressed: _scrollToBottom,
+                                      // Focusable configuration and action buttons
+                                      _buildFocusableSwitch(
+                                        label: "Ghi log",
+                                        value: LogService.flagWriteLogDevice,
+                                        onChanged: (val) {
+                                          setState(() {
+                                            LogService.flagWriteLogDevice = val;
+                                          });
+                                          LogService.logUpdateNotifier.value++;
+                                        },
+                                        focusNode: _switchFocusNode,
                                       ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
-                                        tooltip: "Xóa log",
+                                      _buildFocusableAction(
+                                        icon: Icons.arrow_upward,
+                                        label: "Lên",
+                                        onPressed: _scrollUp,
+                                        focusNode: _scrollUpFocusNode,
+                                      ),
+                                      _buildFocusableAction(
+                                        icon: Icons.arrow_downward,
+                                        label: "Xuống",
+                                        onPressed: _scrollDown,
+                                        focusNode: _scrollDownFocusNode,
+                                      ),
+                                      _buildFocusableAction(
+                                        icon: Icons.delete_sweep,
+                                        label: "Xóa",
                                         onPressed: () {
                                           LogService.clear();
                                           setState(() {});
                                         },
+                                        focusNode: _clearFocusNode,
+                                        iconColor: Colors.redAccent,
                                       ),
-                                      IconButton(
-                                        icon: const Icon(Icons.close, color: Colors.white),
-                                        tooltip: "Đóng",
+                                      _buildFocusableAction(
+                                        icon: Icons.close,
+                                        label: "Đóng",
                                         onPressed: () {
-                                          setState(() {
-                                            _isVisible = false;
-                                          });
+                                          LogService.consoleVisibilityNotifier.value = false;
                                         },
+                                        focusNode: _closeFocusNode,
+                                        iconColor: Colors.white,
                                       ),
                                     ],
                                   ),

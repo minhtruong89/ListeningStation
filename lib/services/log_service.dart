@@ -1,9 +1,13 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 class LogService {
   static bool flagWriteLogDevice = true;
   static final List<String> logs = [];
   static final ValueNotifier<int> logUpdateNotifier = ValueNotifier(0);
+  static final ValueNotifier<bool> consoleVisibilityNotifier = ValueNotifier(false);
+  static final FocusNode logButtonFocusNode = FocusNode();
+  static FocusNode? retryButtonFocusNode;
 
   static void initialize() {
     debugPrint = (String? message, {int? wrapWidth}) {

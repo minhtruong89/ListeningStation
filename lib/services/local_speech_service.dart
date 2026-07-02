@@ -52,28 +52,28 @@ class LocalSpeechService implements ISpeechService {
       ttsInstance.setStartHandler(() {
         debugPrint("[LocalSpeechService] Speech started.");
         if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SAY\n");
+          _sendUartMessage("SAY\r\n");
         }
       });
 
       ttsInstance.setCompletionHandler(() {
         debugPrint("[LocalSpeechService] Speech completed.");
         if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SIL\n");
+          _sendUartMessage("SIL\r\n");
         }
       });
 
       ttsInstance.setCancelHandler(() {
         debugPrint("[LocalSpeechService] Speech cancelled.");
         if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SIL\n");
+          _sendUartMessage("SIL\r\n");
         }
       });
 
       ttsInstance.setErrorHandler((message) {
         debugPrint("[LocalSpeechService] Native TTS Error: $message");
         if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SIL\n");
+          _sendUartMessage("SIL\r\n");
         }
       });
 
@@ -123,7 +123,7 @@ class LocalSpeechService implements ISpeechService {
           'baudRate': 115200,
           'testMessage': msg,
         });
-        debugPrint("[LocalSpeechService UART] Sent '$msg' successfully using cached device (VID: 0x${SpeechService.uartVid!.toRadixString(16).toUpperCase()}).");
+        debugPrint("[LocalSpeechService UART] Sent $msg successfully using cached device (VID: 0x${SpeechService.uartVid!.toRadixString(16).toUpperCase()}).");
         return;
       }
 
@@ -140,7 +140,7 @@ class LocalSpeechService implements ISpeechService {
             'baudRate': 115200,
             'testMessage': msg,
           });
-          debugPrint("[LocalSpeechService UART] Sent '$msg' and cached device.");
+          debugPrint("[LocalSpeechService UART] Sent $msg and cached device.");
         } else {
           debugPrint("[LocalSpeechService UART] Cannot send: USB permission not granted.");
         }
@@ -218,7 +218,7 @@ class LocalSpeechService implements ISpeechService {
     try {
       _tts?.stop();
       if (SpeechService.flagSendUARTGlobal) {
-        _sendUartMessage("SIL\n");
+        _sendUartMessage("SIL\r\n");
       }
     } catch (e) {
       debugPrint("[LocalSpeechService] Error stopping audio: $e");

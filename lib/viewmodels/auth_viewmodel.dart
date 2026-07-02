@@ -39,6 +39,7 @@ class AuthViewModel extends ChangeNotifier {
   bool _isVerified = false;
   String _verificationInfoText = "";
   String _ruleStatusText = "";
+  String _detectedText = "";
   bool _isRangePopupVisible = false;
   
   double _caseOperatorMin = 0.0;
@@ -82,6 +83,11 @@ class AuthViewModel extends ChangeNotifier {
   bool get isVerified => _isVerified;
   String get verificationInfoText => _verificationInfoText;
   String get ruleStatusText => _ruleStatusText;
+  void setRuleStatusText(String val) {
+    _ruleStatusText = val;
+    notifyListeners();
+  }
+  String get detectedText => _detectedText;
   bool get isRangePopupVisible => _isRangePopupVisible;
   
   double get caseOperatorMin => _caseOperatorMin;
@@ -160,6 +166,7 @@ class AuthViewModel extends ChangeNotifier {
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
     _ruleStatusText = "Đang kiểm tra...";
+    _detectedText = "Nhập thủ công: $rawInput";
     notifyListeners();
 
     try {
@@ -175,6 +182,7 @@ class AuthViewModel extends ChangeNotifier {
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
     _ruleStatusText = "Đang đọc mã QR...";
+    _detectedText = "QR Code: $rawQr";
     notifyListeners();
  
     try {
@@ -196,12 +204,15 @@ class AuthViewModel extends ChangeNotifier {
     if (_isProcessing || _isVerified) return;
     _isProcessing = true;
     _ruleStatusText = "Đang nhận dạng văn bản...";
+    _detectedText = "";
     notifyListeners();
  
     try {
       final ocrText = await _ocrService.extractTextAsync(imagePath);
       //debugPrint("[AuthViewModel] OCR Extracted raw text length: ${ocrText.length} characters");
       debugPrint("[AuthViewModel] OCR Extracted content:\n$ocrText");
+      _detectedText = ocrText;
+      notifyListeners();
       if (ocrText.isNotEmpty && ocrText.length > 5) {
         await _verifyAndNavigateAsync(ocrText);
       } else {
@@ -220,6 +231,10 @@ class AuthViewModel extends ChangeNotifier {
 
     try {
       final ocrText = await _ocrService.extractFromInputImage(inputImage);
+      if (ocrText.isNotEmpty) {
+        _detectedText = ocrText;
+        notifyListeners();
+      }
       if (ocrText.isNotEmpty && ocrText.length > 5) {
         //debugPrint("[AuthViewModel] Live Stream OCR Extracted raw text length: ${ocrText.length} characters");
         //debugPrint("[AuthViewModel] Live Stream OCR Extracted content:\n$ocrText");

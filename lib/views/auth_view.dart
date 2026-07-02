@@ -13,6 +13,7 @@ import '../services/camera_service.dart';
 import '../utils/styles.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/main_viewmodel.dart';
+import '../services/log_service.dart';
 
 class AuthView extends StatefulWidget {
   const AuthView({super.key});
@@ -42,6 +43,11 @@ class _AuthViewState extends State<AuthView> {
   late final FocusNode _sliderMinFocus;
   late final FocusNode _sliderMaxFocus;
   late final FocusNode _confirmButtonFocusNode;
+  
+  late final FocusNode _keyboardFocusNode;
+  late final FocusNode _confirmCcidFocusNode;
+  bool _isKeyboardFocused = false;
+  bool _isConfirmCcidFocused = false;
 
   KeyEventResult _handleSliderKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
@@ -75,6 +81,11 @@ class _AuthViewState extends State<AuthView> {
         setState(() {
           _isRotateCameraFocused = _rotateCameraFocusNode.hasFocus;
         });
+        if (_rotateCameraFocusNode.hasFocus) {
+          _enableScanner();
+        } else {
+          _disableScanner();
+        }
       }
     });
     _confirmButtonFocusNode = FocusNode(onKeyEvent: (node, event) {
@@ -110,10 +121,94 @@ class _AuthViewState extends State<AuthView> {
         });
       }
     });
+
+    _keyboardFocusNode = FocusNode();
+    _keyboardFocusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isKeyboardFocused = _keyboardFocusNode.hasFocus;
+        });
+      }
+    });
+    _keyboardFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          if (LogService.flagWriteLogDevice) {
+            LogService.logButtonFocusNode.requestFocus();
+          } else {
+            _rotateCameraFocusNode.requestFocus();
+          }
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          _confirmCcidFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+
+    _confirmCcidFocusNode = FocusNode();
+    _confirmCcidFocusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isConfirmCcidFocused = _confirmCcidFocusNode.hasFocus;
+        });
+      }
+    });
+    _confirmCcidFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          _keyboardFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          _rotateCameraFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+
+    _rotateCameraFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          _confirmCcidFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          if (LogService.flagWriteLogDevice) {
+            LogService.logButtonFocusNode.requestFocus();
+          } else {
+            _keyboardFocusNode.requestFocus();
+          }
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+
+    // Override Log button key event navigation for AuthView
+    LogService.logButtonFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          _rotateCameraFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          _keyboardFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+
+    LogService.retryButtonFocusNode = _rotateCameraFocusNode;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _triggerCameraPackageFallback();
-      _rotateCameraFocusNode.requestFocus();
+      _rotateCameraFocusNode.requestFocus(); // Focus defaults to Rotate Camera
     });
   }
 
@@ -130,7 +225,13 @@ class _AuthViewState extends State<AuthView> {
     );
 
     try {
-      await controller.start();
+      if (_rotateCameraFocusNode.hasFocus) {
+        await controller.start();
+        _isAutoScanActive = true;
+      } else {
+        final authVm = context.read<AuthViewModel>();
+        authVm.setRuleStatusText("Đang ở chế độ nhập thủ công");
+      }
       debugPrint("[AuthView] MobileScannerController started successfully!");
       if (!_isDisposed) {
         setState(() {
@@ -179,6 +280,38 @@ class _AuthViewState extends State<AuthView> {
     });
   }
 
+  bool _isAutoScanActive = false;
+
+  void _enableScanner() {
+    if (_isAutoScanActive || _isDisposed) return;
+    _isAutoScanActive = true;
+    debugPrint("[AuthView] Focus on Xoay Camera -> Enabling auto scan");
+    
+    final authVm = context.read<AuthViewModel>();
+    authVm.setRuleStatusText("Đang nhận dạng văn bản...");
+
+    if (_useCameraPackageFallback) {
+      _startFallbackScanLoop();
+    } else {
+      _scannerController?.start();
+    }
+  }
+
+  void _disableScanner() {
+    if (!_isAutoScanActive || _isDisposed) return;
+    _isAutoScanActive = false;
+    debugPrint("[AuthView] Focus out of Xoay Camera -> Disabling auto scan");
+
+    final authVm = context.read<AuthViewModel>();
+    authVm.setRuleStatusText("Đang ở chế độ nhập thủ công");
+
+    if (_useCameraPackageFallback) {
+      _fallbackScanTimer?.cancel();
+    } else {
+      _scannerController?.stop();
+    }
+  }
+
   void _triggerCameraPackageFallback() {
     if (_useCameraPackageFallback || _isDisposed) return;
     debugPrint("[AuthView] Initializing standard camera package preview...");
@@ -199,7 +332,12 @@ class _AuthViewState extends State<AuthView> {
       await _cameraService.startAsync();
       if (mounted) {
         setState(() {});
-        _startFallbackScanLoop();
+        if (_rotateCameraFocusNode.hasFocus) {
+          _startFallbackScanLoop();
+        } else {
+          final authVm = context.read<AuthViewModel>();
+          authVm.setRuleStatusText("Đang ở chế độ nhập thủ công");
+        }
       }
     });
   }
@@ -332,20 +470,47 @@ class _AuthViewState extends State<AuthView> {
     return firstCam.lensDirection == CameraLensDirection.external && firstCam.sensorOrientation == 90;
   }
 
-  Widget _buildCameraWidget(Widget cameraWidget, int manualQuarterTurns) {
+  Widget _buildCameraWidget(Widget Function(double w, double h) childBuilder, int manualQuarterTurns) {
     int baseTurns = _shouldRotate180() ? 2 : 0;
     int totalTurns = (baseTurns + manualQuarterTurns) % 4;
+    bool is90or270 = (totalTurns == 1 || totalTurns == 3);
+    
+    double width = 1280.0;
+    double height = 720.0;
+    if (_useCameraPackageFallback && _cameraService.controller != null && _cameraService.controller!.value.isInitialized) {
+      width = _cameraService.controller!.value.previewSize?.width ?? 1280.0;
+      height = _cameraService.controller!.value.previewSize?.height ?? 720.0;
+    }
+    
+    double boxWidth = is90or270 ? height : width;
+    double boxHeight = is90or270 ? width : height;
+    
+    Widget child = childBuilder(boxWidth, boxHeight);
     if (totalTurns > 0) {
       return RotatedBox(
         quarterTurns: totalTurns,
-        child: cameraWidget,
+        child: child,
       );
     }
-    return cameraWidget;
+    return child;
   }
 
   @override
   void dispose() {
+    LogService.retryButtonFocusNode = null;
+    // Restore default Log button key listener
+    LogService.logButtonFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+            event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          if (LogService.retryButtonFocusNode != null && LogService.retryButtonFocusNode!.canRequestFocus) {
+            LogService.retryButtonFocusNode!.requestFocus();
+            return KeyEventResult.handled;
+          }
+        }
+      }
+      return KeyEventResult.ignored;
+    };
     _isDisposed = true;
     _fallbackScanTimer?.cancel();
     _manualInputController.dispose();
@@ -355,6 +520,8 @@ class _AuthViewState extends State<AuthView> {
     _sliderMaxFocus.dispose();
     _rotateCameraFocusNode.dispose();
     _confirmButtonFocusNode.dispose();
+    _keyboardFocusNode.dispose();
+    _confirmCcidFocusNode.dispose();
     _cameraService.stopAsync();
     super.dispose();
   }
@@ -375,14 +542,88 @@ class _AuthViewState extends State<AuthView> {
         child: SafeArea(
           child: Stack(
             children: [
-              // Landscape Side-by-Side Split View
+              // Root View containing Header Row + Split View body
               Focus(
                 descendantsAreFocusable: !authVm.isRangePopupVisible,
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                child: Column(
                   children: [
+                    // TOP ROW: Logo, Title, and Rotate Camera button
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          Icon(Icons.hearing, color: AppStyles.primaryAccent, size: 28.0 * scale),
+                          SizedBox(width: 8.0 * scale),
+                          Text(
+                            "TRẠM LẮNG NGHE",
+                            style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
+                          ),
+                          SizedBox(width: 16.0 * scale),
+
+                          // Rotate Camera Button on the Right of Title
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              focusNode: _rotateCameraFocusNode,
+                              onTap: () {
+                                authVm.cycleCameraRotation();
+                              },
+                              borderRadius: BorderRadius.circular(20.0 * scale),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 10.0 * scale),
+                                decoration: BoxDecoration(
+                                  color: _isRotateCameraFocused 
+                                      ? AppStyles.primaryAccent 
+                                      : Colors.black54,
+                                  borderRadius: BorderRadius.circular(20.0 * scale),
+                                  border: Border.all(
+                                    color: _isRotateCameraFocused ? Colors.white : AppStyles.primaryAccent.withValues(alpha: 0.5),
+                                    width: _isRotateCameraFocused ? 2.5 * scale : 1.0,
+                                  ),
+                                  boxShadow: _isRotateCameraFocused
+                                      ? [
+                                          BoxShadow(
+                                            color: AppStyles.primaryAccent.withValues(alpha: 0.6),
+                                            blurRadius: 12.0 * scale,
+                                            spreadRadius: 2.0 * scale,
+                                          )
+                                        ]
+                                      : null,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.rotate_right, 
+                                      color: _isRotateCameraFocused ? AppStyles.backgroundEnd : AppStyles.primaryAccent, 
+                                      size: 18.0 * scale,
+                                    ),
+                                    SizedBox(width: 6.0 * scale),
+                                    Text(
+                                      "Xoay Camera",
+                                      style: TextStyle(
+                                        color: _isRotateCameraFocused ? AppStyles.backgroundEnd : AppStyles.textPrimary,
+                                        fontSize: 12.0 * scale,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // NEXT ROW: Body Split View
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24.0, 0.0, 24.0, 24.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
                     // LEFT COLUMN: Viewfinder & Automatic Scanner
                     Expanded(
                       flex: 6,
@@ -423,23 +664,23 @@ class _AuthViewState extends State<AuthView> {
                                              _cameraService.controller!.value.isInitialized)
                                          ? RepaintBoundary(
                                              key: _previewBoundaryKey,
-                                        child: AspectRatio(
-                                          aspectRatio: 1.5,
-                                          child: ClipRect(
-                                            child: FittedBox(
-                                              fit: BoxFit.cover,
-                                              child: _buildCameraWidget(
-                                                SizedBox(
-                                                  width: _cameraService.controller!.value.previewSize?.width ?? 1280.0,
-                                                  height: _cameraService.controller!.value.previewSize?.height ?? 720.0,
-                                                  child: CameraPreview(_cameraService.controller!),
-                                                ),
-                                                authVm.cameraRotationQuarterTurns,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      )
+                                         child: AspectRatio(
+                                           aspectRatio: 1.5,
+                                           child: ClipRect(
+                                             child: FittedBox(
+                                               fit: BoxFit.cover,
+                                               child: _buildCameraWidget(
+                                                 (w, h) => SizedBox(
+                                                   width: w,
+                                                   height: h,
+                                                   child: CameraPreview(_cameraService.controller!),
+                                                 ),
+                                                 authVm.cameraRotationQuarterTurns,
+                                               ),
+                                             ),
+                                           ),
+                                         ),
+                                       )
                                     : Container(
                                         color: AppStyles.backgroundStart,
                                         child: const Center(
@@ -471,9 +712,9 @@ class _AuthViewState extends State<AuthView> {
                                           child: FittedBox(
                                             fit: BoxFit.cover,
                                             child: _buildCameraWidget(
-                                              SizedBox(
-                                                width: 1280.0,
-                                                height: 720.0,
+                                              (w, h) => SizedBox(
+                                                width: w,
+                                                height: h,
                                                 child: MobileScanner(
                                                   controller: _scannerController!,
                                                   onDetect: (capture) {
@@ -663,63 +904,6 @@ class _AuthViewState extends State<AuthView> {
                                   ),
                                 ),
                               ),
-
-                            // 6. Camera rotation toggle button (floating overlay)
-                            Positioned(
-                              top: 16.0 * scale,
-                              right: 16.0 * scale,
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  focusNode: _rotateCameraFocusNode,
-                                  onTap: () {
-                                    authVm.cycleCameraRotation();
-                                  },
-                                  borderRadius: BorderRadius.circular(20.0 * scale),
-                                  child: Container(
-                                    padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 10.0 * scale),
-                                    decoration: BoxDecoration(
-                                      color: _isRotateCameraFocused 
-                                          ? AppStyles.primaryAccent 
-                                          : Colors.black54,
-                                      borderRadius: BorderRadius.circular(20.0 * scale),
-                                      border: Border.all(
-                                        color: _isRotateCameraFocused ? Colors.white : AppStyles.primaryAccent.withValues(alpha: 0.5),
-                                        width: _isRotateCameraFocused ? 2.5 * scale : 1.0,
-                                      ),
-                                      boxShadow: _isRotateCameraFocused
-                                          ? [
-                                              BoxShadow(
-                                                color: AppStyles.primaryAccent.withValues(alpha: 0.6),
-                                                blurRadius: 12.0 * scale,
-                                                spreadRadius: 2.0 * scale,
-                                              )
-                                            ]
-                                          : null,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.rotate_right, 
-                                          color: _isRotateCameraFocused ? AppStyles.backgroundEnd : AppStyles.primaryAccent, 
-                                          size: 18.0 * scale,
-                                        ),
-                                        SizedBox(width: 6.0 * scale),
-                                        Text(
-                                          "Xoay Camera",
-                                          style: TextStyle(
-                                            color: _isRotateCameraFocused ? AppStyles.backgroundEnd : AppStyles.textPrimary,
-                                            fontSize: 12.0 * scale,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -734,18 +918,6 @@ class _AuthViewState extends State<AuthView> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // App Title Header
-                            Row(
-                              children: [
-                                Icon(Icons.hearing, color: AppStyles.primaryAccent, size: 28.0 * scale),
-                                SizedBox(width: 8.0 * scale),
-                                Text(
-                                  "TRẠM LẮNG NGHE",
-                                  style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 12.0 * scale),
                             
                             // Stage Verification Info Card
                             Container(
@@ -861,53 +1033,128 @@ class _AuthViewState extends State<AuthView> {
                               SizedBox(height: 12.0 * scale),
                             ],
 
+                            // Display recognized text content
+                            if (authVm.detectedText.isNotEmpty) ...[
+                              Container(
+                                padding: EdgeInsets.all(12.0 * scale),
+                                decoration: AppStyles.glassDecoration(
+                                  radius: 16.0 * scale,
+                                  borderColor: Colors.white10,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Nội dung nhận dạng được:",
+                                      style: TextStyle(
+                                        color: AppStyles.primaryAccent,
+                                        fontSize: 12.0 * scale,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: 6.0 * scale),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      height: 65.0 * scale,
+                                      child: SingleChildScrollView(
+                                        child: Text(
+                                          authVm.detectedText,
+                                          style: TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 12.0 * scale,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(height: 12.0 * scale),
+                            ],
+
                             // Manual CCCD Input
                             Row(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    decoration: AppStyles.glassDecoration(radius: 12.0 * scale),
-                                    padding: EdgeInsets.symmetric(horizontal: 16.0 * scale),
-                                    child: TextField(
-                                      controller: _manualInputController,
-                                      enabled: !authVm.isRangePopupVisible,
-                                      style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
-                                      decoration: InputDecoration(
-                                        hintText: "Nhập số CCCD thủ công",
-                                        hintStyle: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
-                                        border: InputBorder.none,
-                                      ),
-                                      keyboardType: TextInputType.number,
-                                      onSubmitted: (val) {
-                                        if (val.trim().isNotEmpty) {
-                                          authVm.handleManualInput(val.trim());
-                                          _manualInputController.clear();
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(width: 12.0 * scale),
-                                SizedBox(
-                                  height: 45.0 * scale,
-                                  child: ElevatedButton(
-                                    onPressed: authVm.isRangePopupVisible ? null : () {
-                                      final val = _manualInputController.text;
-                                      if (val.trim().isNotEmpty) {
-                                        authVm.handleManualInput(val.trim());
-                                        _manualInputController.clear();
-                                      }
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppStyles.primaryAccent,
-                                      foregroundColor: AppStyles.backgroundEnd,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
-                                      elevation: 0.0,
-                                    ),
-                                    child: Icon(Icons.send, size: 18.0 * scale),
-                                  ),
-                                ),
-                              ],
+                               children: [
+                                 // Display box (Read-only TextField)
+                                 Expanded(
+                                   child: Container(
+                                     decoration: AppStyles.glassDecoration(radius: 12.0 * scale),
+                                     padding: EdgeInsets.symmetric(horizontal: 16.0 * scale),
+                                     child: TextField(
+                                       controller: _manualInputController,
+                                       readOnly: true,
+                                       enabled: !authVm.isRangePopupVisible,
+                                       style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                       decoration: InputDecoration(
+                                         hintText: "Nhập số CCCD thủ công",
+                                         hintStyle: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
+                                         border: InputBorder.none,
+                                       ),
+                                     ),
+                                   ),
+                                 ),
+                                 SizedBox(width: 8.0 * scale),
+                                 
+                                 // Keyboard Icon Button
+                                 SizedBox(
+                                   height: 45.0 * scale,
+                                   width: 50.0 * scale,
+                                   child: InkWell(
+                                     focusNode: _keyboardFocusNode,
+                                     onTap: authVm.isRangePopupVisible ? null : _openKeyboardPopup,
+                                     borderRadius: BorderRadius.circular(12.0 * scale),
+                                     child: Container(
+                                       decoration: BoxDecoration(
+                                         color: _isKeyboardFocused ? Colors.green : AppStyles.primaryAccent.withValues(alpha: 0.2),
+                                         borderRadius: BorderRadius.circular(12.0 * scale),
+                                         border: Border.all(
+                                           color: _isKeyboardFocused ? Colors.white : AppStyles.primaryAccent.withValues(alpha: 0.5),
+                                           width: _isKeyboardFocused ? 2.5 * scale : 1.0,
+                                         ),
+                                       ),
+                                       child: Icon(
+                                         Icons.keyboard, 
+                                         color: _isKeyboardFocused ? Colors.white : AppStyles.primaryAccent,
+                                         size: 18.0 * scale,
+                                       ),
+                                     ),
+                                   ),
+                                 ),
+                                 SizedBox(width: 8.0 * scale),
+                                 
+                                 // Confirm (Send) Button
+                                 SizedBox(
+                                   height: 45.0 * scale,
+                                   width: 50.0 * scale,
+                                   child: InkWell(
+                                     focusNode: _confirmCcidFocusNode,
+                                     onTap: authVm.isRangePopupVisible ? null : () {
+                                       final val = _manualInputController.text;
+                                       if (val.trim().isNotEmpty) {
+                                         authVm.handleManualInput(val.trim());
+                                         _manualInputController.clear();
+                                       }
+                                     },
+                                     borderRadius: BorderRadius.circular(12.0 * scale),
+                                     child: Container(
+                                       decoration: BoxDecoration(
+                                         color: _isConfirmCcidFocused ? Colors.green : AppStyles.primaryAccent,
+                                         borderRadius: BorderRadius.circular(12.0 * scale),
+                                         border: Border.all(
+                                           color: _isConfirmCcidFocused ? Colors.white : Colors.transparent,
+                                           width: _isConfirmCcidFocused ? 2.5 * scale : 0.0,
+                                         ),
+                                       ),
+                                       child: Icon(
+                                         Icons.send, 
+                                         color: _isConfirmCcidFocused ? Colors.white : AppStyles.backgroundEnd,
+                                         size: 18.0 * scale,
+                                       ),
+                                     ),
+                                   ),
+                                 ),
+                               ],
                             ),
                           ],
                         ),
@@ -917,6 +1164,9 @@ class _AuthViewState extends State<AuthView> {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
 
               // OVERLAY DIALOG: Financial limits sliding inputs popup
               if (authVm.isRangePopupVisible)
@@ -1115,10 +1365,183 @@ class _AuthViewState extends State<AuthView> {
     );
   }
 
+  Future<void> _openKeyboardPopup() async {
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => HorizontalKeyboardDialog(initialValue: _manualInputController.text),
+    );
+    if (result != null) {
+      setState(() {
+        _manualInputController.text = result;
+      });
+    }
+  }
+
   // ignore: unused_element
   String _formatCurrency(double amount) {
     String val = amount.toStringAsFixed(0);
     final reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
     return val.replaceAllMapped(reg, (Match m) => "${m[1]},");
+  }
+}
+
+class HorizontalKeyboardDialog extends StatefulWidget {
+  final String initialValue;
+  const HorizontalKeyboardDialog({super.key, required this.initialValue});
+
+  @override
+  State<HorizontalKeyboardDialog> createState() => _HorizontalKeyboardDialogState();
+}
+
+class _HorizontalKeyboardDialogState extends State<HorizontalKeyboardDialog> {
+  late String _currentText;
+  final List<FocusNode> _focusNodes = List.generate(12, (_) => FocusNode());
+
+  @override
+  void initState() {
+    super.initState();
+    _currentText = widget.initialValue;
+    
+    // Default focus to key '1'
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNodes[0].requestFocus();
+      }
+    });
+
+    for (int i = 0; i < 12; i++) {
+      _focusNodes[i].addListener(() {
+        if (_focusNodes[i].hasFocus) {
+          setState(() {});
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var node in _focusNodes) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  void _onKeyPress(String val) {
+    setState(() {
+      _currentText += val;
+    });
+  }
+
+  void _onBackspace() {
+    if (_currentText.isNotEmpty) {
+      setState(() {
+        _currentText = _currentText.substring(0, _currentText.length - 1);
+      });
+    }
+  }
+
+  Widget _buildKey(int index, String label, VoidCallback onTap, {double width = 45}) {
+    final bool hasFocus = _focusNodes[index].hasFocus;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3.0),
+      child: InkWell(
+        focusNode: _focusNodes[index],
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8.0),
+        child: Container(
+          width: width,
+          height: 45,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: hasFocus ? Colors.green : Colors.grey[900],
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(
+              color: hasFocus ? Colors.white : Colors.white24,
+              width: hasFocus ? 2.5 : 1.0,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: hasFocus ? Colors.white : Colors.white70,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 750,
+        padding: const EdgeInsets.all(20.0),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(16.0),
+          border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.3), width: 1.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              "NHẬP SỐ CCCD",
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16.0),
+            // Display value
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              decoration: BoxDecoration(
+                color: Colors.grey[950],
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.white12),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                _currentText.isEmpty ? "Nhập số..." : _currentText,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontFamily: 'monospace',
+                  letterSpacing: 2.0,
+                  color: _currentText.isEmpty ? Colors.white30 : Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20.0),
+            // Keyboard Row
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ...List.generate(9, (index) {
+                    final numStr = (index + 1).toString();
+                    return _buildKey(index, numStr, () => _onKeyPress(numStr));
+                  }),
+                  _buildKey(9, "0", () => _onKeyPress("0")),
+                  _buildKey(10, "Xóa", _onBackspace, width: 65),
+                  _buildKey(11, "Xong", () {
+                    Navigator.of(context).pop(_currentText);
+                  }, width: 75),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

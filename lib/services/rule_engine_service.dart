@@ -497,7 +497,7 @@ class RuleEngineService implements IRuleEngineService {
             'vendorId': vid,
             'productId': pid,
             'baudRate': 115200,
-            'testMessage': "NO\n",
+            'testMessage': "NO\r\n",
           });
           
           if (testResult != null) {

@@ -66,6 +66,29 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
     _clearFocusNode.addListener(_onFocusChanged);
     _closeFocusNode.addListener(_onFocusChanged);
 
+    KeyEventResult handleOverlayFocusTrap(FocusNode node, KeyEvent event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          return KeyEventResult.handled; // Trap vertical navigation
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft && node == _switchFocusNode) {
+          _closeFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight && node == _closeFocusNode) {
+          _switchFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    }
+
+    _switchFocusNode.onKeyEvent = handleOverlayFocusTrap;
+    _scrollUpFocusNode.onKeyEvent = handleOverlayFocusTrap;
+    _scrollDownFocusNode.onKeyEvent = handleOverlayFocusTrap;
+    _clearFocusNode.onKeyEvent = handleOverlayFocusTrap;
+    _closeFocusNode.onKeyEvent = handleOverlayFocusTrap;
+
     // Remote control D-pad navigation logic for the main trigger button
     LogService.logButtonFocusNode.onKeyEvent = (node, event) {
       if (event is KeyDownEvent) {
@@ -136,6 +159,13 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _closeFocusNode.requestFocus();
+          }
+        });
+      } else {
+        // Restore focus to logButtonFocusNode when console is closed
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            LogService.logButtonFocusNode.requestFocus();
           }
         });
       }

@@ -50,23 +50,17 @@ class LocalSpeechService implements ISpeechService {
       debugPrint("[LocalSpeechService] Initializing Native TTS engine...");
       final ttsInstance = FlutterTts();
 
-      // Configure handlers for UART state matching speaking activity
+      // Configure handlers for logging
       ttsInstance.setStartHandler(() {
         debugPrint("[LocalSpeechService] Speech started.");
-        _silTimer?.cancel(); // Cancel any existing timer if a new speech actually starts
+        _silTimer?.cancel();
         _silTimer = null;
-        if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SAY\r\n");
-        }
       });
 
       ttsInstance.setCompletionHandler(() {
         debugPrint("[LocalSpeechService] Speech completed.");
         _silTimer?.cancel();
         _silTimer = null;
-        if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SIL\r\n");
-        }
       });
 
       ttsInstance.setCancelHandler(() {
@@ -74,7 +68,7 @@ class LocalSpeechService implements ISpeechService {
         _silTimer?.cancel();
         _silTimer = null;
         if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SIL\r\n");
+          _sendUartMessage("SIL\r\n"); // Send SIL on cancel to be safe
         }
       });
 
@@ -83,11 +77,14 @@ class LocalSpeechService implements ISpeechService {
         _silTimer?.cancel();
         _silTimer = null;
         if (SpeechService.flagSendUARTGlobal) {
-          _sendUartMessage("SIL\r\n");
+          _sendUartMessage("SIL\r\n"); // Send SIL on error to be safe
         }
       });
 
       _tts = ttsInstance;
+      
+      // Ensure speak() awaits completion
+      await _tts!.awaitSpeakCompletion(true);
 
       if (Platform.isAndroid) {
         try {
@@ -217,12 +214,12 @@ class LocalSpeechService implements ISpeechService {
         await _tts!.setVolume(volume);
       }
 
-      // Immediately send SAY to UART device when speech starts
+      // We now await the UART SAY so it doesn't overlap with audio starting too early
       if (SpeechService.flagSendUARTGlobal) {
-        _sendUartMessage("SAY\r\n");
+        await _sendUartMessage("SAY\r\n");
       }
 
-      // Start fallback timer to send SIL if completion handler fails to trigger
+      // Start fallback timer just in case completion is not called
       final int wordCount = text.split(RegExp(r'\s+')).length;
       final int estimatedDurationMs = ((wordCount / (2.5 * speed)) * 1000).toInt() + 1500;
       _silTimer = Timer(Duration(milliseconds: estimatedDurationMs), () {
@@ -233,6 +230,12 @@ class LocalSpeechService implements ISpeechService {
       });
 
       await _tts!.speak(text);
+
+      // Now that awaitSpeakCompletion(true) is set, speak() waits until speech completes
+      _silTimer?.cancel();
+      if (SpeechService.flagSendUARTGlobal) {
+        await _sendUartMessage("SIL\r\n");
+      }
     } catch (e) {
       debugPrint("[LocalSpeechService] Offline TTS Error: $e");
     }
@@ -245,6 +248,7 @@ class LocalSpeechService implements ISpeechService {
       _silTimer = null;
       _tts?.stop();
       if (SpeechService.flagSendUARTGlobal) {
+        debugPrint("[LocalSpeechService] stop()");
         _sendUartMessage("SIL\r\n");
       }
     } catch (e) {

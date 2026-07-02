@@ -92,8 +92,8 @@ class MainActivity : FlutterActivity() {
                 "startRecording" -> {
                     val filePath = call.argument<String>("filePath") ?: ""
                     val deviceIndex = call.argument<Int>("deviceIndex") ?: 0
-                    val success = startRecording(filePath, deviceIndex)
-                    result.success(success)
+                    val resultString = startRecording(filePath, deviceIndex)
+                    result.success(resultString)
                 }
                 "stopRecording" -> {
                     val success = stopRecording()
@@ -207,7 +207,7 @@ class MainActivity : FlutterActivity() {
 
     private var activeRecorder: MediaRecorder? = null
 
-    private fun startRecording(filePath: String, deviceIndex: Int): Boolean {
+    private fun startRecording(filePath: String, deviceIndex: Int): String {
         if (activeRecorder != null) {
             try {
                 activeRecorder?.stop()
@@ -227,7 +227,7 @@ class MainActivity : FlutterActivity() {
             val file = java.io.File(filePath)
             file.parentFile?.mkdirs()
 
-            recorder.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             recorder.setAudioSamplingRate(16000)
@@ -238,12 +238,15 @@ class MainActivity : FlutterActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
                 val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                android.util.Log.d("AudioRecord", "Available input devices: ${devices.map { "${it.productName}(type=${it.type})" }}")
                 if (deviceIndex >= 0 && deviceIndex < devices.size) {
                     val targetDevice = devices[deviceIndex]
                     val success = recorder.setPreferredDevice(targetDevice)
                     android.util.Log.d("AudioRecord", "Setting preferred input device: ${targetDevice.productName}, success=$success")
                 } else {
-                    android.util.Log.w("AudioRecord", "Device index $deviceIndex out of bounds (0..${devices.size - 1})")
+                    val errorMsg = "Device index $deviceIndex out of bounds (0..${devices.size - 1})"
+                    android.util.Log.w("AudioRecord", errorMsg)
+                    return "ERROR: $errorMsg"
                 }
             }
 
@@ -251,13 +254,14 @@ class MainActivity : FlutterActivity() {
             recorder.start()
             activeRecorder = recorder
             android.util.Log.d("AudioRecord", "Recording started successfully on device $deviceIndex")
-            return true
+            return "OK"
         } catch (e: Exception) {
-            android.util.Log.e("AudioRecord", "Error during recording setup: ${e.message}", e)
+            val errDetail = "Error during recording setup: ${e.message}"
+            android.util.Log.e("AudioRecord", errDetail, e)
             try {
                 recorder.release()
             } catch (ex: Exception) {}
-            return false
+            return "ERROR: $errDetail"
         }
     }
 

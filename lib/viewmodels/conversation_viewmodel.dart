@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/conversation.dart';
 import '../services/llm_service.dart';
 import '../services/speech_service.dart';
@@ -25,6 +26,8 @@ class ConversationViewModel extends ChangeNotifier {
   String _voiceInputStatus = "";
   bool _isVoiceRecording = false;
   bool _isVoiceTranscribing = false;
+  bool _hasVoiceError = false;          // true only after a recording attempt fails
+  String _voiceTranscribedText = ""; // holds result until user confirms or retries
 
   final List<ConversationMessage> _messages = [];
   int _currentRequestToken = 0;
@@ -55,6 +58,9 @@ class ConversationViewModel extends ChangeNotifier {
   String get voiceInputStatus => _voiceInputStatus;
   bool get isVoiceRecording => _isVoiceRecording;
   bool get isVoiceTranscribing => _isVoiceTranscribing;
+  bool get hasVoiceError => _hasVoiceError;
+  String get voiceTranscribedText => _voiceTranscribedText;
+  bool get hasVoiceResult => _voiceTranscribedText.isNotEmpty && !_isVoiceRecording && !_isVoiceTranscribing;
 
   List<ConversationMessage> get messages => _messages;
 
@@ -234,42 +240,46 @@ class ConversationViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> startVoiceInputAsync() async {
-    if (_isVoiceInputActive) return null;
+  // Starts STT recording and keeps the popup open until user confirms or retries.
+  // Returns immediately; popup stays visible via isVoiceInputActive flag.
+  Future<void> startVoiceInputAsync() async {
+    if (_isVoiceInputActive) return; // strict guard: prevent any re-entry while popup is open
 
     _isVoiceInputActive = true;
-    _isVoiceRecording = false; // Popup is kept hidden during prepare
+    _isVoiceRecording = false;
     _isVoiceTranscribing = false;
+    _hasVoiceError = false;   // clear any previous error — popup is in "preparing" state
+    _voiceTranscribedText = "";
     _voiceInputStatus = "Chuẩn bị micro...";
     notifyListeners();
 
     try {
       int deviceIndex = _ruleEngine.matchedMicrophoneIndex;
-      if (deviceIndex == -1) {
-        deviceIndex = 0;
-      }
+      if (deviceIndex == -1) deviceIndex = 0;
 
-      final String path = "/sdcard/Download/voice_input.m4a";
+      final tempDir = await getTemporaryDirectory();
+      final String path = "${tempDir.path}/voice_input.m4a";
       const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
-      
-      debugPrint("[Voice Input] Starting recording on device index $deviceIndex to path: $path");
-      
-      final bool? startSuccess = await channel.invokeMethod<bool>('startRecording', {
+
+      debugPrint("[Voice Input] INVOKING startRecording on device: $deviceIndex, path: $path");
+
+      final String? startResult = await channel.invokeMethod<String>('startRecording', {
         'filePath': path,
         'deviceIndex': deviceIndex,
       });
 
-      if (startSuccess == true) {
-        // Micro is ready! Now show the popup to prompt speaking
+      debugPrint("[Voice Input] Method 'startRecording' returned result: '$startResult'");
+
+      if (startResult == "OK") {
         _isVoiceRecording = true;
         _voiceInputStatus = "Đang lắng nghe...";
         notifyListeners();
 
-        // Record for 5 seconds
         await Future.delayed(const Duration(seconds: 5));
 
-        // Stop the recorder
+        debugPrint("[Voice Input] INVOKING stopRecording...");
         final bool? stopSuccess = await channel.invokeMethod<bool>('stopRecording');
+        debugPrint("[Voice Input] Method 'stopRecording' returned: $stopSuccess");
 
         if (stopSuccess == true) {
           _isVoiceRecording = false;
@@ -277,33 +287,58 @@ class ConversationViewModel extends ChangeNotifier {
           _voiceInputStatus = "Đang nhận diện...";
           notifyListeners();
 
-          debugPrint("[Voice Input] Sending audio for transcription...");
+          debugPrint("[Voice Input] INVOKING transcribeAudioAsync with path: $path");
           final String text = await _llmService.transcribeAudioAsync(path);
-          debugPrint("[Voice Input] Transcribed text: $text");
+          debugPrint("[Voice Input] Transcription completed. Result length: ${text.length}. Content: '$text'");
 
-          _isVoiceInputActive = false;
           _isVoiceTranscribing = false;
+          _voiceTranscribedText = text.trim();
+          _voiceInputStatus = _voiceTranscribedText.isNotEmpty
+              ? "Kết quả nhận diện:"
+              : "Không nhận diện được giọng nói.";
           notifyListeners();
-          return text;
+          return;
+        } else {
+          debugPrint("[Voice Input] FAILED to stop recording. stopSuccess was not true.");
+          _voiceInputStatus = "Lỗi dừng file thu âm.";
         }
+      } else {
+        debugPrint("[Voice Input] FAILED to start recording: $startResult");
+        _voiceInputStatus = startResult ?? "Không phản hồi từ thiết bị.";
       }
-      
+
       _isVoiceRecording = false;
-      _isVoiceInputActive = false;
-      _voiceInputStatus = "Lỗi thu âm từ thiết bị.";
+      _hasVoiceError = true;
+      _voiceTranscribedText = "";
       notifyListeners();
-      await Future.delayed(const Duration(seconds: 2));
-    } catch (e) {
-      debugPrint("[Voice Input] Error: $e");
+    } catch (e, stack) {
+      debugPrint("[Voice Input] EXCEPTION CAUGHT: $e");
+      debugPrint("[Voice Input] STACK TRACE: $stack");
+      _hasVoiceError = true;
       _voiceInputStatus = "Lỗi xảy ra: $e";
-      notifyListeners();
-      await Future.delayed(const Duration(seconds: 2));
-    } finally {
-      _isVoiceInputActive = false;
+      _voiceTranscribedText = "";
       _isVoiceRecording = false;
       _isVoiceTranscribing = false;
       notifyListeners();
     }
-    return null;
+  }
+
+  // Retry STT from the voice popup — resets active flag first so guard doesn't block
+  Future<void> retryVoiceInputAsync() async {
+    if (_isVoiceRecording || _isVoiceTranscribing) return;
+    _isVoiceInputActive = false; // temporarily reset so startVoiceInputAsync guard passes
+    await startVoiceInputAsync();
+  }
+
+  // Called when user dismisses or confirms voice popup without accepting
+  void cancelVoiceInput() {
+    _isVoiceInputActive = false;
+    _isVoiceRecording = false;
+    _isVoiceTranscribing = false;
+    _hasVoiceError = false;
+    _voiceTranscribedText = "";
+    _voiceInputStatus = "";
+    notifyListeners();
   }
 }
+

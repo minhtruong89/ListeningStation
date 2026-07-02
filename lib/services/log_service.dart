@@ -8,6 +8,9 @@ class LogService {
   static final ValueNotifier<bool> consoleVisibilityNotifier = ValueNotifier(false);
   static final FocusNode logButtonFocusNode = FocusNode();
   static FocusNode? retryButtonFocusNode;
+  // Registered by the host view so Log button can navigate back into the UI
+  static FocusNode? prevFocusNode;  // ← from Log goes here (e.g. Send/Input)
+  static FocusNode? nextFocusNode;  // → from Log goes here (e.g. Mute)
 
   static void initialize() {
     debugPrint = (String? message, {int? wrapWidth}) {

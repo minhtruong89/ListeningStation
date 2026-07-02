@@ -66,11 +66,28 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
     _clearFocusNode.addListener(_onFocusChanged);
     _closeFocusNode.addListener(_onFocusChanged);
 
-    // Remote control D-pad left/right navigation logic for the main trigger button
+    // Remote control D-pad navigation logic for the main trigger button
     LogService.logButtonFocusNode.onKeyEvent = (node, event) {
       if (event is KeyDownEvent) {
-        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-            event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        // ← goes to prevFocusNode (e.g. Send in conversation_view) or retryButton
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          final prev = LogService.prevFocusNode;
+          if (prev != null && prev.canRequestFocus) {
+            prev.requestFocus();
+            return KeyEventResult.handled;
+          }
+          if (LogService.retryButtonFocusNode != null && LogService.retryButtonFocusNode!.canRequestFocus) {
+            LogService.retryButtonFocusNode!.requestFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        // → goes to nextFocusNode (e.g. Mute in conversation_view) or retryButton
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          final next = LogService.nextFocusNode;
+          if (next != null && next.canRequestFocus) {
+            next.requestFocus();
+            return KeyEventResult.handled;
+          }
           if (LogService.retryButtonFocusNode != null && LogService.retryButtonFocusNode!.canRequestFocus) {
             LogService.retryButtonFocusNode!.requestFocus();
             return KeyEventResult.handled;
@@ -276,7 +293,7 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
                 if (_isVisible)
                   Positioned.fill(
                     child: Material(
-                      color: Colors.black.withOpacity(0.9),
+                      color: Colors.black.withValues(alpha: 0.9),
                       child: SafeArea(
                         child: Column(
                           children: [

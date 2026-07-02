@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../utils/styles.dart';
 import '../viewmodels/conversation_viewmodel.dart';
 import '../viewmodels/main_viewmodel.dart';
+import '../services/log_service.dart';
 
 class ConversationView extends StatefulWidget {
   const ConversationView({super.key});
@@ -44,64 +45,41 @@ class _ConversationViewState extends State<ConversationView> {
   bool _isConfirmFinalizeFocused = false;
   bool _isGoToResultFocused = false;
 
+  // Focus nodes for voice popup
+  late final FocusNode _voiceConfirmFocusNode;
+  late final FocusNode _voiceRetryFocusNode;
+  late final FocusNode _voiceCancelFocusNode;
+  bool _isVoiceConfirmFocused = false;
+  bool _isVoiceRetryFocused = false;
+  bool _isVoiceCancelFocused = false;
+
   // Track previous visibility states to detect changes
   bool _prevIsSummaryVisible = false;
   bool _prevIsFinalizeVisible = false;
   bool _prevIsFinalizeConfirmed = false;
+  bool _prevIsVoiceActive = false;
+  bool _prevHasVoiceResult = false;
+  bool _prevHasVoiceError = false;
 
   // Optimize scrolling triggers on weak Android Box hardware
   int _lastMessageCount = 0;
 
-  KeyEventResult _handleInputKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        _muteButtonFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        _voiceButtonFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
-  }
-
-  KeyEventResult _handleVoiceKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        _demoButtonFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        _inputFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        _sendButtonFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
-  }
-
-  KeyEventResult _handleSendKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        _finalizeButtonFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        _voiceButtonFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
-  }
-
+  // ── Bottom bar D-pad (closed horizontal loop) ────────────────────────
+  // Order: [Mute] ↔ [Demo] ↔ [Finalize] ↔ [Voice] ↔ [Send/Input] ↔ [Log]*
+  // * [Log] only included when LogService.flagWriteLogDevice == true
   KeyEventResult _handleMuteKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
         _voiceButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        // wrap-around: Log → Send → ... → Mute
+        if (LogService.flagWriteLogDevice && LogService.logButtonFocusNode.canRequestFocus) {
+          LogService.logButtonFocusNode.requestFocus();
+        } else {
+          _sendButtonFocusNode.requestFocus();
+        }
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
@@ -140,10 +118,164 @@ class _ConversationViewState extends State<ConversationView> {
         _demoButtonFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _voiceButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }
 
+  KeyEventResult _handleVoiceKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _finalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _finalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _sendButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleSendKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _finalizeButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _voiceButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        // wrap-around: Send → Log (if enabled) → Mute
+        if (LogService.flagWriteLogDevice && LogService.logButtonFocusNode.canRequestFocus) {
+          LogService.logButtonFocusNode.requestFocus();
+        } else {
+          _muteButtonFocusNode.requestFocus();
+        }
+        return KeyEventResult.handled;
+      }
+      // Select/Enter on Send button: submit the current text
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.select ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.accept ||
+          event.logicalKey == LogicalKeyboardKey.space) {
+        final vm = context.read<ConversationViewModel>();
+        final val = _chatInputController.text;
+        if (val.trim().isNotEmpty) {
+          vm.userInput = val;
+          vm.sendMessageAsync();
+          _chatInputController.clear();
+        }
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleInputKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _muteButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _voiceButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _muteButtonFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      // Select/Enter: submit text
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.select ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.accept) {
+        final vm = context.read<ConversationViewModel>();
+        final val = _chatInputController.text;
+        if (val.trim().isNotEmpty) {
+          vm.userInput = val;
+          vm.sendMessageAsync();
+          _chatInputController.clear();
+        }
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  // ── Voice popup D-pad ────────────────────────────────────────────────
+  // In normal result state (3 buttons): [Retry] ↔ [Confirm] ↔ [Cancel]
+  // In error state (2 buttons): [Retry] ↔ [Cancel]
+  KeyEventResult _handleVoiceConfirmKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final vm = context.read<ConversationViewModel>();
+      if (vm.hasVoiceError) {
+        // Confirm button is hidden in error state, should not be focused
+        _voiceRetryFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _voiceRetryFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _voiceCancelFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleVoiceRetryKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final vm = context.read<ConversationViewModel>();
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _voiceCancelFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        if (vm.hasVoiceError) {
+          _voiceCancelFocusNode.requestFocus();
+        } else {
+          _voiceConfirmFocusNode.requestFocus();
+        }
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleVoiceCancelKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final vm = context.read<ConversationViewModel>();
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        if (vm.hasVoiceError) {
+          _voiceRetryFocusNode.requestFocus();
+        } else {
+          _voiceConfirmFocusNode.requestFocus();
+        }
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _voiceRetryFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  // ── Finalize popup ──────────────────────────────────────────────────
   KeyEventResult _handleCancelFinalizeKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
@@ -179,6 +311,10 @@ class _ConversationViewState extends State<ConversationView> {
     _confirmFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleConfirmFinalizeKeyEvent);
     _goToResultButtonFocusNode = FocusNode();
 
+    _voiceConfirmFocusNode = FocusNode(onKeyEvent: _handleVoiceConfirmKeyEvent);
+    _voiceRetryFocusNode = FocusNode(onKeyEvent: _handleVoiceRetryKeyEvent);
+    _voiceCancelFocusNode = FocusNode(onKeyEvent: _handleVoiceCancelKeyEvent);
+
     _inputFocusNode.addListener(() {
       if (mounted) setState(() => _isInputFocused = _inputFocusNode.hasFocus);
     });
@@ -211,15 +347,34 @@ class _ConversationViewState extends State<ConversationView> {
       if (mounted) setState(() => _isGoToResultFocused = _goToResultButtonFocusNode.hasFocus);
     });
 
+    _voiceConfirmFocusNode.addListener(() {
+      if (mounted) setState(() => _isVoiceConfirmFocused = _voiceConfirmFocusNode.hasFocus);
+    });
+    _voiceRetryFocusNode.addListener(() {
+      if (mounted) setState(() => _isVoiceRetryFocused = _voiceRetryFocusNode.hasFocus);
+    });
+    _voiceCancelFocusNode.addListener(() {
+      if (mounted) setState(() => _isVoiceCancelFocused = _voiceCancelFocusNode.hasFocus);
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _muteButtonFocusNode.requestFocus();
       }
     });
+
+    // Register this view's adjacent nodes so Log button can navigate back into the bar
+    // Loop: ... [Send/Input] → [Log] → [Mute] ...
+    LogService.prevFocusNode = _sendButtonFocusNode;
+    LogService.nextFocusNode = _muteButtonFocusNode;
   }
 
   @override
   void dispose() {
+    // Unregister Log navigation refs so they don't dangle after this view is gone
+    if (LogService.prevFocusNode == _sendButtonFocusNode) LogService.prevFocusNode = null;
+    if (LogService.nextFocusNode == _muteButtonFocusNode) LogService.nextFocusNode = null;
+
     _chatInputController.dispose();
     _scrollController.dispose();
     _inputFocusNode.dispose();
@@ -232,6 +387,9 @@ class _ConversationViewState extends State<ConversationView> {
     _cancelFinalizeButtonFocusNode.dispose();
     _confirmFinalizeButtonFocusNode.dispose();
     _goToResultButtonFocusNode.dispose();
+    _voiceConfirmFocusNode.dispose();
+    _voiceRetryFocusNode.dispose();
+    _voiceCancelFocusNode.dispose();
     super.dispose();
   }
 
@@ -325,6 +483,64 @@ class _ConversationViewState extends State<ConversationView> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _goToResultButtonFocusNode.requestFocus();
       });
+    }
+
+    if (vm.isVoiceInputActive && !_prevIsVoiceActive) {
+      _prevIsVoiceActive = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          if (vm.hasVoiceError) {
+            _voiceRetryFocusNode.requestFocus();
+          } else if (vm.hasVoiceResult) {
+            _voiceConfirmFocusNode.requestFocus();
+          } else {
+            // If active but no result/error yet (i.e. recording), default to cancel/retry to be safe
+            _voiceCancelFocusNode.requestFocus();
+          }
+        }
+      });
+    } else if (!vm.isVoiceInputActive && _prevIsVoiceActive) {
+      _prevIsVoiceActive = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _sendButtonFocusNode.requestFocus(); // return focus to Send/Input button
+      });
+    }
+
+    // Dynamic focus redirection when error or result appears asynchronously
+    if (vm.isVoiceInputActive) {
+      final bool hasResultWithText = vm.hasVoiceResult && vm.voiceTranscribedText.isNotEmpty;
+      final bool hasUnclearResult = vm.hasVoiceResult && vm.voiceTranscribedText.isEmpty;
+      final bool currentHasResult = vm.hasVoiceResult;
+      final bool currentHasError = vm.hasVoiceError || hasUnclearResult;
+
+      // 1. Detect transitioning to ERROR state
+      if (currentHasError && !_prevHasVoiceError) {
+        _prevHasVoiceError = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (mounted && vm.isVoiceInputActive) _voiceRetryFocusNode.requestFocus();
+          });
+        });
+      }
+      // 2. Detect transitioning to SUCCESS state
+      else if (hasResultWithText && !_prevHasVoiceResult) {
+        _prevHasVoiceResult = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (mounted && vm.isVoiceInputActive) _voiceConfirmFocusNode.requestFocus();
+          });
+        });
+      }
+
+      // Reset edge triggers when state goes back to active recording/transcribing
+      if (!currentHasResult && !currentHasError) {
+        _prevHasVoiceResult = false;
+        _prevHasVoiceError = false;
+      }
+    } else {
+      // Reset if popup is closed
+      _prevHasVoiceResult = false;
+      _prevHasVoiceError = false;
     }
 
     // Auto-scroll only when new messages are added to prevent loop-scrolling and stutter on TV Boxes
@@ -424,7 +640,7 @@ class _ConversationViewState extends State<ConversationView> {
                           onPressed: () => vm.runDemoModeAsync(),
                           icon: Icon(Icons.slideshow, size: 18.0 * scale),
                           label: Text(
-                            "CHẠY KỊCH BẢN DEMO",
+                            "CHẠY DEMO",
                             style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
@@ -440,16 +656,15 @@ class _ConversationViewState extends State<ConversationView> {
                             elevation: _isDemoFocused ? 12.0 : 0.0,
                           ),
                         ),
-                        
-                        const Spacer(),
-  
-                        // Stop / Finalize Button
+                        SizedBox(width: 12.0 * scale),
+
+                        // Stop / Finalize Button (Moved next to Demo)
                         ElevatedButton.icon(
                           focusNode: _finalizeButtonFocusNode,
                           onPressed: () => vm.showFinalizeAsync(),
                           icon: Icon(Icons.check_circle_outline, size: 18.0 * scale),
                           label: Text(
-                            "KẾT THÚC HỘI THOẠI & PHÊ DUYỆT",
+                            "KẾT THÚC HỘI THOẠI",
                             style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
@@ -461,6 +676,8 @@ class _ConversationViewState extends State<ConversationView> {
                             elevation: _isFinalizeFocused ? 12.0 : 0.0,
                           ),
                         ),
+
+                        const Spacer(),
                       ],
                     ),
                     SizedBox(height: 16.0 * scale),
@@ -583,37 +800,28 @@ class _ConversationViewState extends State<ConversationView> {
                                         )
                                       ] : null,
                                     ),
-                                    padding: EdgeInsets.symmetric(horizontal: 16.0 * scale),
-                                    child: TextField(
+                                    padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 14.0 * scale),
+                                    child: Focus(
                                       focusNode: _inputFocusNode,
-                                      controller: _chatInputController,
-                                      style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
-                                      decoration: InputDecoration(
-                                        hintText: "Nhập phản hồi của bệnh nhân...",
-                                        hintStyle: AppStyles.caption.copyWith(fontSize: 12.0 * scale),
-                                        border: InputBorder.none,
+                                      child: Text(
+                                        _chatInputController.text.isEmpty
+                                            ? "Nhập phản hồi của bệnh nhân..."
+                                            : _chatInputController.text,
+                                        style: _chatInputController.text.isEmpty
+                                            ? AppStyles.caption.copyWith(fontSize: 12.0 * scale)
+                                            : AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                      onSubmitted: (val) {
-                                        if (val.trim().isNotEmpty) {
-                                          vm.userInput = val;
-                                          vm.sendMessageAsync();
-                                          _chatInputController.clear();
-                                        }
-                                      },
                                     ),
                                   ),
                                 ),
-                                SizedBox(width: 12.0 * scale),
+                                 SizedBox(width: 12.0 * scale),
                                 SizedBox(
                                   height: 50.0 * scale,
                                   child: ElevatedButton(
                                     focusNode: _voiceButtonFocusNode,
-                                    onPressed: () async {
-                                      final text = await vm.startVoiceInputAsync();
-                                      if (text != null && text.trim().isNotEmpty) {
-                                        _chatInputController.text = text;
-                                      }
-                                    },
+                                    onPressed: () => vm.startVoiceInputAsync(),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: _isVoiceFocused ? AppStyles.secondaryAccent : AppStyles.glassCardBg,
                                       foregroundColor: _isVoiceFocused ? AppStyles.backgroundEnd : AppStyles.textPrimary,
@@ -879,12 +1087,33 @@ class _ConversationViewState extends State<ConversationView> {
                     ),
                   ),
                 ),
-              // OVERLAY DIALOG: Voice Input Dialog
+              // OVERLAY DIALOG: Voice Input Dialog (persistent - stays open until user confirms or retries)
               if (vm.isVoiceInputActive)
-                VoiceInputDialog(
-                  status: vm.voiceInputStatus,
-                  isRecording: vm.isVoiceRecording,
-                  isTranscribing: vm.isVoiceTranscribing,
+                FocusScope(
+                  autofocus: true,
+                  child: VoiceInputDialog(
+                    status: vm.hasVoiceResult && vm.voiceTranscribedText.isEmpty 
+                        ? "Không nhận diện được giọng nói." 
+                        : vm.voiceInputStatus,
+                    isRecording: vm.isVoiceRecording,
+                    isTranscribing: vm.isVoiceTranscribing,
+                    hasResult: vm.hasVoiceResult && vm.voiceTranscribedText.isNotEmpty,
+                    hasError: vm.hasVoiceError || (vm.hasVoiceResult && vm.voiceTranscribedText.isEmpty),
+                    transcribedText: vm.voiceTranscribedText,
+                    confirmFocusNode: _voiceConfirmFocusNode,
+                    retryFocusNode: _voiceRetryFocusNode,
+                    cancelFocusNode: _voiceCancelFocusNode,
+                    isConfirmFocused: _isVoiceConfirmFocused,
+                    isRetryFocused: _isVoiceRetryFocused,
+                    isCancelFocused: _isVoiceCancelFocused,
+                    onConfirm: (text) {
+                      _chatInputController.text = text;
+                      vm.cancelVoiceInput();
+                      // Focus moves to Send button (handled by _prevIsVoiceActive logic)
+                    },
+                    onRetry: () => vm.retryVoiceInputAsync(),
+                    onCancel: () => vm.cancelVoiceInput(),
+                  ),
                 ),
             ],
           ),
@@ -899,12 +1128,36 @@ class VoiceInputDialog extends StatefulWidget {
   final String status;
   final bool isRecording;
   final bool isTranscribing;
+  final bool hasResult;
+  final bool hasError;
+  final String transcribedText;
+  final FocusNode confirmFocusNode;
+  final FocusNode retryFocusNode;
+  final FocusNode cancelFocusNode;
+  final bool isConfirmFocused;
+  final bool isRetryFocused;
+  final bool isCancelFocused;
+  final void Function(String text) onConfirm;
+  final VoidCallback onRetry;
+  final VoidCallback onCancel;
 
   const VoiceInputDialog({
     super.key,
     required this.status,
     required this.isRecording,
     required this.isTranscribing,
+    required this.hasResult,
+    required this.hasError,
+    required this.transcribedText,
+    required this.confirmFocusNode,
+    required this.retryFocusNode,
+    required this.cancelFocusNode,
+    required this.isConfirmFocused,
+    required this.isRetryFocused,
+    required this.isCancelFocused,
+    required this.onConfirm,
+    required this.onRetry,
+    required this.onCancel,
   });
 
   @override
@@ -925,7 +1178,6 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> with SingleTickerPr
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-
     if (widget.isRecording) {
       _pulseController.repeat(reverse: true);
     }
@@ -952,69 +1204,273 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> with SingleTickerPr
     final Size screenSize = MediaQuery.of(context).size;
     final double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
 
+    final bool isBusy = widget.isRecording || widget.isTranscribing;
+    final Color accentColor = widget.hasResult
+        ? AppStyles.successColor
+        : widget.hasError
+            ? AppStyles.errorColor
+            : AppStyles.primaryAccent;
+
     return Container(
-      color: Colors.black.withValues(alpha: 0.4), // Less dim background
-      child: Align(
-        alignment: const Alignment(0, -0.5), // Shifted upwards
-        child: Container(
-          width: 320.0 * scale,
-          height: 200.0 * scale,
-          padding: EdgeInsets.all(16.0 * scale),
+      color: Colors.black.withValues(alpha: 0.65),
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 420.0 * scale, // Single unified size
+          padding: EdgeInsets.all(22.0 * scale),
           decoration: AppStyles.glassDecoration(
-            radius: 16.0 * scale,
-            borderColor: AppStyles.primaryAccent,
+            radius: 20.0 * scale,
+            borderColor: accentColor,
+          ).copyWith(
+            boxShadow: [
+              BoxShadow(
+                color: accentColor.withValues(alpha: 0.25),
+                blurRadius: 24.0 * scale,
+                spreadRadius: 2.0 * scale,
+              ),
+            ],
           ),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              AnimatedBuilder(
-                animation: _pulseAnimation,
-                builder: (context, child) {
-                  return Container(
-                    width: 75.0 * scale,
-                    height: 75.0 * scale,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppStyles.primaryAccent.withValues(
-                        alpha: widget.isRecording ? (0.4 / _pulseAnimation.value) : 0.2,
-                      ),
+              // Title row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.mic, color: accentColor, size: 22.0 * scale),
+                  SizedBox(width: 8.0 * scale),
+                  Text(
+                    "NHẬP GIỌNG NÓI",
+                    style: AppStyles.bodyLarge.copyWith(
+                      fontSize: 15.0 * scale,
+                      fontWeight: FontWeight.bold,
+                      color: accentColor,
                     ),
-                    child: Center(
-                      child: Container(
-                        width: 55.0 * scale * (widget.isRecording ? (_pulseAnimation.value * 0.8) : 1.0),
-                        height: 55.0 * scale * (widget.isRecording ? (_pulseAnimation.value * 0.8) : 1.0),
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppStyles.primaryAccent,
-                        ),
-                        child: Icon(
-                          widget.isTranscribing ? Icons.sync : Icons.mic,
-                          color: AppStyles.backgroundEnd,
-                          size: 26.0 * scale,
-                        ),
-                      ),
-                    ),
-                  );
-                },
+                  ),
+                ],
               ),
               SizedBox(height: 16.0 * scale),
-              Text(
-                widget.status,
-                style: AppStyles.titleLarge.copyWith(
-                  color: AppStyles.textPrimary,
-                  fontSize: 15.0 * scale,
-                  fontWeight: FontWeight.bold,
+
+              // Mic animation (shown when recording or transcribing)
+              if (isBusy || !widget.hasResult) ...[
+                AnimatedBuilder(
+                  animation: _pulseAnimation,
+                  builder: (context, child) {
+                    return Container(
+                      width: 70.0 * scale,
+                      height: 70.0 * scale,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppStyles.primaryAccent.withValues(
+                          alpha: widget.isRecording ? (0.4 / _pulseAnimation.value) : 0.15,
+                        ),
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 50.0 * scale * (widget.isRecording ? (_pulseAnimation.value * 0.8) : 1.0),
+                          height: 50.0 * scale * (widget.isRecording ? (_pulseAnimation.value * 0.8) : 1.0),
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppStyles.primaryAccent,
+                          ),
+                          child: Icon(
+                            widget.isTranscribing ? Icons.sync : Icons.mic,
+                            color: AppStyles.backgroundEnd,
+                            size: 24.0 * scale,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-                textAlign: TextAlign.center,
-              ),
-              if (widget.isRecording) ...[
-                SizedBox(height: 8.0 * scale),
+                SizedBox(height: 12.0 * scale),
                 Text(
-                  "Hãy nói gì đó...",
-                  style: AppStyles.caption.copyWith(
-                    color: AppStyles.textSecondary,
-                    fontSize: 12.0 * scale,
+                  widget.status,
+                  style: AppStyles.bodyMedium.copyWith(
+                    fontSize: 13.0 * scale,
+                    color: AppStyles.textPrimary,
+                    fontWeight: FontWeight.w600,
                   ),
+                  textAlign: TextAlign.center,
+                ),
+                if (widget.isRecording) ...[
+                  SizedBox(height: 6.0 * scale),
+                  Text(
+                    "Hãy nói gì đó...",
+                    style: AppStyles.caption.copyWith(
+                      color: AppStyles.textSecondary,
+                      fontSize: 11.0 * scale,
+                    ),
+                  ),
+                ],
+              ],
+
+              // Result display (shown after transcription)
+              if (widget.hasResult) ...[
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(14.0 * scale),
+                  decoration: BoxDecoration(
+                    color: AppStyles.successColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10.0 * scale),
+                    border: Border.all(color: AppStyles.successColor.withValues(alpha: 0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Kết quả nhận diện:",
+                        style: AppStyles.caption.copyWith(
+                          color: AppStyles.successColor,
+                          fontSize: 11.0 * scale,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 6.0 * scale),
+                      Text(
+                        widget.transcribedText,
+                        style: AppStyles.bodyLarge.copyWith(
+                          fontSize: 15.0 * scale,
+                          color: AppStyles.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 16.0 * scale),
+
+                // Action buttons: [Retry] [Confirm] [Cancel]
+                Row(
+                  children: [
+                    // Retry button
+                    Expanded(
+                      child: SizedBox(
+                        height: 44.0 * scale,
+                        child: OutlinedButton.icon(
+                          focusNode: widget.retryFocusNode,
+                          onPressed: widget.onRetry,
+                          icon: Icon(Icons.refresh, size: 16.0 * scale),
+                          label: Text(
+                            "THỬ LẠI",
+                            style: TextStyle(fontSize: 12.0 * scale, fontWeight: FontWeight.bold),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: widget.isRetryFocused ? Colors.white : AppStyles.textSecondary,
+                            backgroundColor: widget.isRetryFocused ? AppStyles.glassCardBorder : Colors.transparent,
+                            side: BorderSide(
+                              color: widget.isRetryFocused ? Colors.white : AppStyles.glassCardBorder,
+                              width: widget.isRetryFocused ? 2.5 * scale : 1.0,
+                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                            elevation: widget.isRetryFocused ? 8.0 : 0.0,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 10.0 * scale),
+                    // Confirm button
+                    Expanded(
+                      flex: 2,
+                      child: SizedBox(
+                        height: 44.0 * scale,
+                        child: ElevatedButton.icon(
+                          focusNode: widget.confirmFocusNode,
+                          onPressed: () => widget.onConfirm(widget.transcribedText),
+                          icon: Icon(Icons.check, size: 16.0 * scale),
+                          label: Text(
+                            "XÁC NHẬN NHẬP",
+                            style: TextStyle(fontSize: 12.0 * scale, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: widget.isConfirmFocused ? AppStyles.successColor : AppStyles.successColor.withValues(alpha: 0.7),
+                            foregroundColor: AppStyles.backgroundEnd,
+                            side: widget.isConfirmFocused ? BorderSide(color: Colors.white, width: 2.5 * scale) : null,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                            elevation: widget.isConfirmFocused ? 10.0 : 0.0,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 10.0 * scale),
+                    // Cancel button
+                    Expanded(
+                      child: SizedBox(
+                        height: 44.0 * scale,
+                        child: OutlinedButton.icon(
+                          focusNode: widget.cancelFocusNode,
+                          onPressed: widget.onCancel,
+                          icon: Icon(Icons.close, size: 16.0 * scale),
+                          label: Text(
+                            "HỦY",
+                            style: TextStyle(fontSize: 12.0 * scale, fontWeight: FontWeight.bold),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: widget.isCancelFocused ? Colors.white : AppStyles.errorColor,
+                            backgroundColor: widget.isCancelFocused ? AppStyles.errorColor.withValues(alpha: 0.2) : Colors.transparent,
+                            side: BorderSide(
+                              color: widget.isCancelFocused ? Colors.white : AppStyles.errorColor.withValues(alpha: 0.6),
+                              width: widget.isCancelFocused ? 2.5 * scale : 1.0,
+                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                            elevation: widget.isCancelFocused ? 8.0 : 0.0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else if (widget.hasError) ...[
+                // Error state: show retry and cancel
+                SizedBox(height: 12.0 * scale),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      height: 44.0 * scale,
+                      child: OutlinedButton.icon(
+                        focusNode: widget.retryFocusNode,
+                        onPressed: widget.onRetry,
+                        icon: Icon(Icons.refresh, size: 16.0 * scale),
+                        label: Text(
+                          "THỬ LẠI",
+                          style: TextStyle(fontSize: 12.0 * scale, fontWeight: FontWeight.bold),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: widget.isRetryFocused ? Colors.white : AppStyles.textSecondary,
+                          backgroundColor: widget.isRetryFocused ? AppStyles.glassCardBorder : Colors.transparent,
+                          side: BorderSide(
+                            color: widget.isRetryFocused ? Colors.white : AppStyles.glassCardBorder,
+                            width: widget.isRetryFocused ? 2.5 * scale : 1.0,
+                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                          elevation: widget.isRetryFocused ? 8.0 : 0.0,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12.0 * scale),
+                    SizedBox(
+                      height: 44.0 * scale,
+                      child: OutlinedButton.icon(
+                        focusNode: widget.cancelFocusNode,
+                        onPressed: widget.onCancel,
+                        icon: Icon(Icons.close, size: 16.0 * scale),
+                        label: Text(
+                          "HỦY",
+                          style: TextStyle(fontSize: 12.0 * scale, fontWeight: FontWeight.bold),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: widget.isCancelFocused ? Colors.white : AppStyles.errorColor,
+                          backgroundColor: widget.isCancelFocused ? AppStyles.errorColor.withValues(alpha: 0.2) : Colors.transparent,
+                          side: BorderSide(
+                            color: widget.isCancelFocused ? Colors.white : AppStyles.errorColor.withValues(alpha: 0.6),
+                            width: widget.isCancelFocused ? 2.5 * scale : 1.0,
+                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                          elevation: widget.isCancelFocused ? 8.0 : 0.0,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ],
@@ -1024,3 +1480,4 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> with SingleTickerPr
     );
   }
 }
+

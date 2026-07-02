@@ -350,50 +350,7 @@ class MainActivity : FlutterActivity() {
         usbManager.requestPermission(targetDevice, permissionIntent)
     }
 
-    private fun getUartEndpointsAndConnection(targetDevice: UsbDevice): Boolean {
-        if (activeConnection != null && activeDevice == targetDevice) {
-            return true
-        }
-
-        closeActiveUartConnection()
-
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-        val connection = usbManager.openDevice(targetDevice) ?: return false
-        val usbInterface = targetDevice.getInterface(0)
-
-        if (!connection.claimInterface(usbInterface, true)) {
-            connection.close()
-            return false
-        }
-
-        var inEp: UsbEndpoint? = null
-        var outEp: UsbEndpoint? = null
-        for (i in 0 until usbInterface.endpointCount) {
-            val ep = usbInterface.getEndpoint(i)
-            if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-                if (ep.direction == UsbConstants.USB_DIR_IN) {
-                    inEp = ep
-                } else if (ep.direction == UsbConstants.USB_DIR_OUT) {
-                    outEp = ep
-                }
-            }
-        }
-
-        if (inEp == null || outEp == null) {
-            connection.releaseInterface(usbInterface)
-            connection.close()
-            return false
-        }
-
-        activeDevice = targetDevice
-        activeConnection = connection
-        activeInterface = usbInterface
-        inEndpoint = inEp
-        outEndpoint = outEp
-
-        // Initialize baud rate on connection setup
-        val vid = targetDevice.vendorId
-        val baudRate = 9600
+    private fun configureUartParameters(connection: UsbDeviceConnection, vid: Int, baudRate: Int) {
         if (vid == 0x10C4) {
             connection.controlTransfer(0x41, 0x00, 0x0001, 0, null, 0, 1000)
             val baudRateBytes = byteArrayOf(
@@ -405,11 +362,46 @@ class MainActivity : FlutterActivity() {
             connection.controlTransfer(0x40, 0x1E, 0, 0, baudRateBytes, baudRateBytes.size, 1000)
         } else if (vid == 0x1A86) {
             connection.controlTransfer(0x40, 0xA1, 0xC29C, 0xB2C9, null, 0, 1000)
-            connection.controlTransfer(0x40, 0xA4, 0xDF00, 0, null, 0, 1000)
-            val divisorVal = 0x0050
-            connection.controlTransfer(0x40, 0x9A, 0x2518, divisorVal, null, 0, 1000)
+            
+            // Standard CH340 register values for baud rate setting
+            val (a, b) = when (baudRate) {
+                115200 -> Pair(0xcc03, 0x0008)
+                9600 -> Pair(0xb203, 0x0013)
+                57600 -> Pair(0xe603, 0x0008)
+                38400 -> Pair(0x6403, 0x0013)
+                19200 -> Pair(0xb203, 0x000a)
+                else -> Pair(0xb203, 0x0013)
+            }
+            // Set Baud Rate (Requires two control transfers to 0x1312 and 0x0F2C)
+            connection.controlTransfer(0x40, 0x9A, 0x1312, a, null, 0, 1000)
+            connection.controlTransfer(0x40, 0x9A, 0x0F2C, b, null, 0, 1000)
+            // Set Line Control (8 Data bits, 1 Stop bit, None parity)
+            connection.controlTransfer(0x40, 0x9A, 0x2518, 0x00C3, null, 0, 1000)
+            // Set Modem Control / Flow Control (DTR/RTS)
             connection.controlTransfer(0x40, 0xA4, 0xFF7F, 0, null, 0, 1000)
-        } else if (targetDevice.deviceClass == UsbConstants.USB_CLASS_COMM) {
+        } else if (vid == 0x0403) { // FTDI
+            connection.controlTransfer(0x40, 0, 0, 0, null, 0, 1000) // Reset
+            val divisor = when (baudRate) {
+                115200 -> 26 or 0x4000
+                9600 -> 312 or 0x4000
+                else -> (3000000 / baudRate)
+            }
+            connection.controlTransfer(0x40, 3, divisor, 0, null, 0, 1000) // Set Baud Rate
+        } else if (vid == 0x067B) { // PL2303
+            connection.controlTransfer(0x40, 1, 0, 0, null, 0, 1000)
+            val lineCoding = byteArrayOf(
+                (baudRate and 0xFF).toByte(),
+                ((baudRate shr 8) and 0xFF).toByte(),
+                ((baudRate shr 16) and 0xFF).toByte(),
+                ((baudRate shr 24) and 0xFF).toByte(),
+                0.toByte(),
+                0.toByte(),
+                8.toByte()
+            )
+            connection.controlTransfer(0x21, 0x20, 0, 0, lineCoding, lineCoding.size, 1000)
+            connection.controlTransfer(0x40, 1, 0, 0xC0, null, 0, 1000)
+        } else {
+            // Default CDC ACM / CH340 / standard fallback
             val lineCoding = byteArrayOf(
                 (baudRate and 0xFF).toByte(),
                 ((baudRate shr 8) and 0xFF).toByte(),
@@ -422,6 +414,63 @@ class MainActivity : FlutterActivity() {
             connection.controlTransfer(0x21, 0x20, 0, 0, lineCoding, lineCoding.size, 1000)
             connection.controlTransfer(0x21, 0x22, 0x3, 0, null, 0, 1000)
         }
+    }
+
+    private fun getUartEndpointsAndConnection(targetDevice: UsbDevice, baudRate: Int): Boolean {
+        if (activeConnection != null && activeDevice == targetDevice) {
+            configureUartParameters(activeConnection!!, targetDevice.vendorId, baudRate)
+            return true
+        }
+
+        closeActiveUartConnection()
+
+        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val connection = usbManager.openDevice(targetDevice) ?: return false
+
+        var inEp: UsbEndpoint? = null
+        var outEp: UsbEndpoint? = null
+        var usbInterface: UsbInterface? = null
+
+        // Loop over all interfaces to find the interface containing bulk IN/OUT endpoints
+        for (i in 0 until targetDevice.interfaceCount) {
+            val interf = targetDevice.getInterface(i)
+            var tempIn: UsbEndpoint? = null
+            var tempOut: UsbEndpoint? = null
+            for (j in 0 until interf.endpointCount) {
+                val ep = interf.getEndpoint(j)
+                if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                    if (ep.direction == UsbConstants.USB_DIR_IN) {
+                        tempIn = ep
+                    } else if (ep.direction == UsbConstants.USB_DIR_OUT) {
+                        tempOut = ep
+                    }
+                }
+            }
+            if (tempIn != null && tempOut != null) {
+                usbInterface = interf
+                inEp = tempIn
+                outEp = tempOut
+                break
+            }
+        }
+
+        if (usbInterface == null || inEp == null || outEp == null) {
+            connection.close()
+            return false
+        }
+
+        if (!connection.claimInterface(usbInterface, true)) {
+            connection.close()
+            return false
+        }
+
+        activeDevice = targetDevice
+        activeConnection = connection
+        activeInterface = usbInterface
+        inEndpoint = inEp
+        outEndpoint = outEp
+
+        configureUartParameters(connection, targetDevice.vendorId, baudRate)
 
         return true
     }
@@ -467,7 +516,7 @@ class MainActivity : FlutterActivity() {
             return response
         }
 
-        if (!getUartEndpointsAndConnection(targetDevice)) {
+        if (!getUartEndpointsAndConnection(targetDevice, baudRate)) {
             response["message"] = "Failed to open or claim USB interface."
             return response
         }

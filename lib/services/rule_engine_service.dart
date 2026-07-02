@@ -492,12 +492,12 @@ class RuleEngineService implements IRuleEngineService {
             return false;
           }
 
-          debugPrint("[SYS005] Running write/read UART test with 'NO'...");
+          debugPrint("[SYS005] Running write/read UART test...");
           final Map<dynamic, dynamic>? testResult = await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
             'vendorId': vid,
             'productId': pid,
-            'baudRate': 115200,
-            'testMessage': "NO\r\n",
+            'baudRate': SpeechService.uartBaudRate,
+            'testMessage': "HELLO\r\n",
           });
           
           if (testResult != null) {

@@ -120,7 +120,7 @@ class LocalSpeechService implements ISpeechService {
         await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
           'vendorId': SpeechService.uartVid,
           'productId': SpeechService.uartPid,
-          'baudRate': 115200,
+          'baudRate': SpeechService.uartBaudRate,
           'testMessage': msg,
         });
         debugPrint("[LocalSpeechService UART] Sent $msg successfully using cached device (VID: 0x${SpeechService.uartVid!.toRadixString(16).toUpperCase()}).");
@@ -137,7 +137,7 @@ class LocalSpeechService implements ISpeechService {
           await channel.invokeMethod<Map<dynamic, dynamic>>('testUartCommunicate', {
             'vendorId': SpeechService.uartVid,
             'productId': SpeechService.uartPid,
-            'baudRate': 115200,
+            'baudRate': SpeechService.uartBaudRate,
             'testMessage': msg,
           });
           debugPrint("[LocalSpeechService UART] Sent $msg and cached device.");

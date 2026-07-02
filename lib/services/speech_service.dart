@@ -21,6 +21,7 @@ class SpeechService implements ISpeechService {
   static int? uartVid;
   static int? uartPid;
   static bool flagSendUARTGlobal = true;
+  static const int uartBaudRate = 115200;
 
   final http.Client _httpClient;
   final AudioPlayer _audioPlayer = AudioPlayer();

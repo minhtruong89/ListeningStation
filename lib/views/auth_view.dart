@@ -38,6 +38,8 @@ class _AuthViewState extends State<AuthView> {
   bool _isConfirmButtonFocused = false;
   late final FocusNode _rotateCameraFocusNode;
   bool _isRotateCameraFocused = false;
+  bool _isSliderValueControlMode = false;
+  bool _lastRangePopupVisible = false;
 
   late final FocusNode _sliderExactFocus;
   late final FocusNode _sliderMinFocus;
@@ -49,21 +51,118 @@ class _AuthViewState extends State<AuthView> {
   bool _isKeyboardFocused = false;
   bool _isConfirmCcidFocused = false;
 
+  void _onViewModelChanged() {
+    if (!mounted || _isDisposed) return;
+    final authVm = context.read<AuthViewModel>();
+    if (authVm.isRangePopupVisible && !_lastRangePopupVisible) {
+      _lastRangePopupVisible = true;
+      _isSliderValueControlMode = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _isDisposed) return;
+        if (authVm.flagOperatorExact) {
+          _sliderExactFocus.requestFocus();
+        } else {
+          _sliderMinFocus.requestFocus();
+        }
+      });
+    } else if (!authVm.isRangePopupVisible && _lastRangePopupVisible) {
+      _lastRangePopupVisible = false;
+      _isSliderValueControlMode = false;
+    }
+  }
+
   KeyEventResult _handleSliderKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final authVm = context.read<AuthViewModel>();
+
+    // Toggle value control mode on Select/Enter/Space
+    if (event.logicalKey == LogicalKeyboardKey.enter || 
+        event.logicalKey == LogicalKeyboardKey.select ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+        event.logicalKey == LogicalKeyboardKey.accept ||
+        event.logicalKey == LogicalKeyboardKey.space) {
+      setState(() {
+        _isSliderValueControlMode = !_isSliderValueControlMode;
+      });
+      return KeyEventResult.handled;
+    }
+
+    if (_isSliderValueControlMode) {
+      // In value control mode, Left/Right changes the slider value
+      final double step = authVm.maxTransactionAmount / 20.0;
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        setState(() {
+          if (node == _sliderExactFocus) {
+            authVm.caseOperatorExact = (authVm.caseOperatorExact - step).clamp(0.0, authVm.maxTransactionAmount);
+          } else if (node == _sliderMinFocus) {
+            authVm.caseOperatorMin = (authVm.caseOperatorMin - step).clamp(0.0, authVm.maxTransactionAmount);
+          } else if (node == _sliderMaxFocus) {
+            authVm.caseOperatorMax = (authVm.caseOperatorMax - step).clamp(0.0, authVm.maxTransactionAmount);
+          }
+        });
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        setState(() {
+          if (node == _sliderExactFocus) {
+            authVm.caseOperatorExact = (authVm.caseOperatorExact + step).clamp(0.0, authVm.maxTransactionAmount);
+          } else if (node == _sliderMinFocus) {
+            authVm.caseOperatorMin = (authVm.caseOperatorMin + step).clamp(0.0, authVm.maxTransactionAmount);
+          } else if (node == _sliderMaxFocus) {
+            authVm.caseOperatorMax = (authVm.caseOperatorMax + step).clamp(0.0, authVm.maxTransactionAmount);
+          }
+        });
+        return KeyEventResult.handled;
+      }
+      // Consume up/down to prevent focus change in value control mode
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        return KeyEventResult.handled;
+      }
+    } else {
+      // In normal focus mode, Left/Right moves focus horizontally
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft || event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        if (node == _sliderExactFocus) {
+          _confirmButtonFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        } else if (node == _sliderMinFocus) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            _sliderMaxFocus.requestFocus();
+          } else {
+            _confirmButtonFocusNode.requestFocus();
+          }
+          return KeyEventResult.handled;
+        } else if (node == _sliderMaxFocus) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _sliderMinFocus.requestFocus();
+          } else {
+            _confirmButtonFocusNode.requestFocus();
+          }
+          return KeyEventResult.handled;
+        }
+      }
+      // Up/Down navigation (vertical) in normal mode
       if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        node.nextFocus();
+        if (node == _sliderExactFocus) {
+          _confirmButtonFocusNode.requestFocus();
+        } else if (node == _sliderMinFocus) {
+          _sliderMaxFocus.requestFocus();
+        } else if (node == _sliderMaxFocus) {
+          _confirmButtonFocusNode.requestFocus();
+        }
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
         if (node == _sliderExactFocus || node == _sliderMinFocus) {
           // Topmost elements in popup: consume to prevent losing focus
           return KeyEventResult.handled;
+        } else if (node == _sliderMaxFocus) {
+          _sliderMinFocus.requestFocus();
         }
-        node.previousFocus();
         return KeyEventResult.handled;
       }
     }
+
     return KeyEventResult.ignored;
   }
 
@@ -72,6 +171,9 @@ class _AuthViewState extends State<AuthView> {
   void initState() {
     super.initState();
     _cameraService = context.read<ICameraService>();
+    final authVm = context.read<AuthViewModel>();
+    authVm.addListener(_onViewModelChanged);
+
     _sliderExactFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
     _sliderMinFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
     _sliderMaxFocus = FocusNode(onKeyEvent: _handleSliderKeyEvent);
@@ -96,15 +198,30 @@ class _AuthViewState extends State<AuthView> {
             key == LogicalKeyboardKey.numpadEnter ||
             key == LogicalKeyboardKey.accept ||
             key == LogicalKeyboardKey.space) {
-          final authVm = context.read<AuthViewModel>();
           final mainVm = context.read<MainViewModel>();
           authVm.confirmRangeAsync(() {
             mainVm.navigateTo(AppStage.conversation);
           });
           return KeyEventResult.handled;
         }
+        if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) {
+          if (authVm.flagOperatorExact) {
+            _sliderExactFocus.requestFocus();
+          } else {
+            if (key == LogicalKeyboardKey.arrowLeft) {
+              _sliderMaxFocus.requestFocus();
+            } else {
+              _sliderMinFocus.requestFocus();
+            }
+          }
+          return KeyEventResult.handled;
+        }
         if (key == LogicalKeyboardKey.arrowUp) {
-          node.previousFocus();
+          if (authVm.flagOperatorExact) {
+            _sliderExactFocus.requestFocus();
+          } else {
+            _sliderMaxFocus.requestFocus();
+          }
           return KeyEventResult.handled;
         }
         if (key == LogicalKeyboardKey.arrowDown) {
@@ -511,6 +628,9 @@ class _AuthViewState extends State<AuthView> {
       }
       return KeyEventResult.ignored;
     };
+    try {
+      context.read<AuthViewModel>().removeListener(_onViewModelChanged);
+    } catch (_) {}
     _isDisposed = true;
     _fallbackScanTimer?.cancel();
     _manualInputController.dispose();
@@ -1205,122 +1325,195 @@ class _AuthViewState extends State<AuthView> {
 
                             if (authVm.flagOperatorExact) ...[
                               // Hạn mức Đề ra Slider
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    "Hạn mức Đề ra:",
-                                    style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                padding: EdgeInsets.all(10.0 * scale),
+                                decoration: BoxDecoration(
+                                  color: _sliderExactFocus.hasFocus ? AppStyles.backgroundStart.withValues(alpha: 0.4) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12.0 * scale),
+                                  border: Border.all(
+                                    color: _sliderExactFocus.hasFocus 
+                                        ? (_isSliderValueControlMode ? AppStyles.successColor : AppStyles.primaryAccent) 
+                                        : Colors.transparent,
+                                    width: 2.0 * scale,
                                   ),
-                                  Text(
-                                    "${_formatCurrency(authVm.caseOperatorExact)} VNĐ",
-                                    style: AppStyles.bodyLarge.copyWith(
-                                      color: AppStyles.primaryAccent,
-                                      fontSize: 16.0 * scale,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  activeTrackColor: AppStyles.primaryAccent,
-                                  inactiveTrackColor: AppStyles.glassCardBorder,
-                                  thumbColor: AppStyles.primaryAccent,
-                                  overlayColor: AppStyles.primaryAccent.withAlpha(32),
-                                  trackHeight: 4.0 * scale,
-                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
-                                  overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
+                                  boxShadow: _sliderExactFocus.hasFocus ? [
+                                    BoxShadow(
+                                      color: (_isSliderValueControlMode ? AppStyles.successColor : AppStyles.primaryAccent).withValues(alpha: 0.2),
+                                      blurRadius: 8.0 * scale,
+                                      spreadRadius: 1.0 * scale,
+                                    )
+                                  ] : null,
                                 ),
-                                child: Slider(
-                                  autofocus: true,
-                                  focusNode: _sliderExactFocus,
-                                  value: authVm.caseOperatorExact,
-                                  min: 0.0,
-                                  max: authVm.maxTransactionAmount,
-                                  divisions: 20,
-                                  onChanged: (val) {
-                                    authVm.caseOperatorExact = val;
-                                  },
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          "Hạn mức Đề ra:",
+                                          style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                                        ),
+                                        Text(
+                                          "${_formatCurrency(authVm.caseOperatorExact)} VNĐ",
+                                          style: AppStyles.bodyLarge.copyWith(
+                                            color: AppStyles.primaryAccent,
+                                            fontSize: 16.0 * scale,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        activeTrackColor: AppStyles.primaryAccent,
+                                        inactiveTrackColor: AppStyles.glassCardBorder,
+                                        thumbColor: AppStyles.primaryAccent,
+                                        overlayColor: AppStyles.primaryAccent.withValues(alpha: 0.12),
+                                        trackHeight: 4.0 * scale,
+                                        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
+                                        overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
+                                      ),
+                                      child: Slider(
+                                        focusNode: _sliderExactFocus,
+                                        value: authVm.caseOperatorExact,
+                                        min: 0.0,
+                                        max: authVm.maxTransactionAmount,
+                                        divisions: 20,
+                                        onChanged: (val) {
+                                          authVm.caseOperatorExact = val;
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ] else ...[
                               // Min Slider
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    "Hạn mức Tối thiểu (Min):",
-                                    style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                padding: EdgeInsets.all(10.0 * scale),
+                                decoration: BoxDecoration(
+                                  color: _sliderMinFocus.hasFocus ? AppStyles.backgroundStart.withValues(alpha: 0.4) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12.0 * scale),
+                                  border: Border.all(
+                                    color: _sliderMinFocus.hasFocus 
+                                        ? (_isSliderValueControlMode ? AppStyles.successColor : AppStyles.primaryAccent) 
+                                        : Colors.transparent,
+                                    width: 2.0 * scale,
                                   ),
-                                  Text(
-                                    "${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
-                                    style: AppStyles.bodyLarge.copyWith(
-                                      color: AppStyles.primaryAccent,
-                                      fontSize: 16.0 * scale,
+                                  boxShadow: _sliderMinFocus.hasFocus ? [
+                                    BoxShadow(
+                                      color: (_isSliderValueControlMode ? AppStyles.successColor : AppStyles.primaryAccent).withValues(alpha: 0.2),
+                                      blurRadius: 8.0 * scale,
+                                      spreadRadius: 1.0 * scale,
+                                    )
+                                  ] : null,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          "Hạn mức Tối thiểu (Min):",
+                                          style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                                        ),
+                                        Text(
+                                          "${_formatCurrency(authVm.caseOperatorMin)} VNĐ",
+                                          style: AppStyles.bodyLarge.copyWith(
+                                            color: AppStyles.primaryAccent,
+                                            fontSize: 16.0 * scale,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                ],
-                              ),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  activeTrackColor: AppStyles.primaryAccent,
-                                  inactiveTrackColor: AppStyles.glassCardBorder,
-                                  thumbColor: AppStyles.primaryAccent,
-                                  overlayColor: AppStyles.primaryAccent.withAlpha(32),
-                                  trackHeight: 4.0 * scale,
-                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
-                                  overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
+                                    SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        activeTrackColor: AppStyles.primaryAccent,
+                                        inactiveTrackColor: AppStyles.glassCardBorder,
+                                        thumbColor: AppStyles.primaryAccent,
+                                        overlayColor: AppStyles.primaryAccent.withValues(alpha: 0.12),
+                                        trackHeight: 4.0 * scale,
+                                        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
+                                        overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
+                                      ),
+                                      child: Slider(
+                                        focusNode: _sliderMinFocus,
+                                        value: authVm.caseOperatorMin,
+                                        min: 0.0,
+                                        max: authVm.maxTransactionAmount,
+                                        divisions: 20,
+                                        onChanged: (val) {
+                                          authVm.caseOperatorMin = val;
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                child: Slider(
-                                  autofocus: true,
-                                  focusNode: _sliderMinFocus,
-                                  value: authVm.caseOperatorMin,
-                                  min: 0.0,
-                                  max: authVm.maxTransactionAmount,
-                                  divisions: 20,
-                                  onChanged: (val) {
-                                    authVm.caseOperatorMin = val;
-                                  },
-                                ),
                               ),
-                              SizedBox(height: 8.0 * scale),
+                              SizedBox(height: 12.0 * scale),
 
                               // Max Slider
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    "Hạn mức Tối đa (Max):",
-                                    style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                padding: EdgeInsets.all(10.0 * scale),
+                                decoration: BoxDecoration(
+                                  color: _sliderMaxFocus.hasFocus ? AppStyles.backgroundStart.withValues(alpha: 0.4) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12.0 * scale),
+                                  border: Border.all(
+                                    color: _sliderMaxFocus.hasFocus 
+                                        ? (_isSliderValueControlMode ? AppStyles.successColor : AppStyles.secondaryAccent) 
+                                        : Colors.transparent,
+                                    width: 2.0 * scale,
                                   ),
-                                  Text(
-                                    "${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
-                                    style: AppStyles.bodyLarge.copyWith(
-                                      color: AppStyles.secondaryAccent,
-                                      fontSize: 16.0 * scale,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  activeTrackColor: AppStyles.secondaryAccent,
-                                  inactiveTrackColor: AppStyles.glassCardBorder,
-                                  thumbColor: AppStyles.secondaryAccent,
-                                  overlayColor: AppStyles.secondaryAccent.withAlpha(32),
-                                  trackHeight: 4.0 * scale,
-                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
-                                  overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
+                                  boxShadow: _sliderMaxFocus.hasFocus ? [
+                                    BoxShadow(
+                                      color: (_isSliderValueControlMode ? AppStyles.successColor : AppStyles.secondaryAccent).withValues(alpha: 0.2),
+                                      blurRadius: 8.0 * scale,
+                                      spreadRadius: 1.0 * scale,
+                                    )
+                                  ] : null,
                                 ),
-                                child: Slider(
-                                  focusNode: _sliderMaxFocus,
-                                  value: authVm.caseOperatorMax,
-                                  min: 0.0,
-                                  max: authVm.maxTransactionAmount,
-                                  divisions: 20,
-                                  onChanged: (val) {
-                                    authVm.caseOperatorMax = val;
-                                  },
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          "Hạn mức Tối đa (Max):",
+                                          style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale),
+                                        ),
+                                        Text(
+                                          "${_formatCurrency(authVm.caseOperatorMax)} VNĐ",
+                                          style: AppStyles.bodyLarge.copyWith(
+                                            color: AppStyles.secondaryAccent,
+                                            fontSize: 16.0 * scale,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        activeTrackColor: AppStyles.secondaryAccent,
+                                        inactiveTrackColor: AppStyles.glassCardBorder,
+                                        thumbColor: AppStyles.secondaryAccent,
+                                        overlayColor: AppStyles.secondaryAccent.withValues(alpha: 0.12),
+                                        trackHeight: 4.0 * scale,
+                                        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10.0 * scale),
+                                        overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0 * scale),
+                                      ),
+                                      child: Slider(
+                                        focusNode: _sliderMaxFocus,
+                                        value: authVm.caseOperatorMax,
+                                        min: 0.0,
+                                        max: authVm.maxTransactionAmount,
+                                        divisions: 20,
+                                        onChanged: (val) {
+                                          authVm.caseOperatorMax = val;
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],

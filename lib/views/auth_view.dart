@@ -261,6 +261,9 @@ class _AuthViewState extends State<AuthView> {
           _confirmCcidFocusNode.requestFocus();
           return KeyEventResult.handled;
         }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          return KeyEventResult.handled;
+        }
       }
       return KeyEventResult.ignored;
     };
@@ -283,6 +286,9 @@ class _AuthViewState extends State<AuthView> {
           _rotateCameraFocusNode.requestFocus();
           return KeyEventResult.handled;
         }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          return KeyEventResult.handled;
+        }
       }
       return KeyEventResult.ignored;
     };
@@ -301,6 +307,9 @@ class _AuthViewState extends State<AuthView> {
           }
           return KeyEventResult.handled;
         }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          return KeyEventResult.handled;
+        }
       }
       return KeyEventResult.ignored;
     };
@@ -314,6 +323,9 @@ class _AuthViewState extends State<AuthView> {
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
           _keyboardFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.arrowDown) {
           return KeyEventResult.handled;
         }
       }

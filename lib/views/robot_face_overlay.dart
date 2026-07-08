@@ -62,15 +62,20 @@ class _RobotFaceOverlayState extends State<RobotFaceOverlay> {
       children: [
         widget.child,
         IgnorePointer(
-          child: Container(
+          child: SizedBox(
             width: double.infinity,
             height: double.infinity,
-            color: Colors.transparent,
-            child: Center(
-              child: Opacity(
-                opacity: 0.8,
-                child: RobotFaceWidget(mode: _currentMode),
-              ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: 24,
+                  right: 24, // Đưa khuôn mặt về góc phải phía trên
+                  child: Opacity(
+                    opacity: 0.85, // Blend alpha mờ nhẹ
+                    child: RobotFaceWidget(mode: _currentMode),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -145,14 +150,38 @@ class _RobotFaceWidgetState extends State<RobotFaceWidget>
       ]),
       builder: (context, child) {
         return SizedBox(
-          width: 640,
-          height: 480,
-          child: CustomPaint(
-            painter: RobotFacePainter(
-              mode: widget.mode,
-              talkingValue: _talkingController.value,
-              blinkValue: _blinkController.value,
-              sleepingValue: _sleepingController.value,
+          width: 240, // Nhỏ lại
+          height: 180,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(40),
+              border: Border.all(
+                color: const Color(0xFFE2E8F0), // Cho lại border viền xám nhạt
+                width: 5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(10),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: Container(
+                color: const Color(0xFF0F172A),
+                child: CustomPaint(
+                  painter: RobotFacePainter(
+                    mode: widget.mode,
+                    talkingValue: _talkingController.value,
+                    blinkValue: _blinkController.value,
+                    sleepingValue: _sleepingController.value,
+                  ),
+                ),
+              ),
             ),
           ),
         );
@@ -176,8 +205,8 @@ class RobotFacePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Responsive scale factor based on layout width (base width is 296)
-    final double scale = size.width / 296.0;
+    // Responsive scale factor based on layout width (base width is 220)
+    final double scale = size.width / 220.0;
 
     final cyanPaint = Paint()
       ..color = const Color(0xFF38BDF8)
@@ -186,7 +215,8 @@ class RobotFacePainter extends CustomPainter {
     final cyanStrokePaint = Paint()
       ..color = const Color(0xFF38BDF8)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5 * scale;
+      ..strokeWidth = 5 * scale
+      ..strokeCap = StrokeCap.round;
 
     final pinkPaint = Paint()
       ..color = const Color(0xFFFF80AB)
@@ -197,10 +227,10 @@ class RobotFacePainter extends CustomPainter {
     final double centerY = size.height / 2;
 
     // 1. Draw Cheeks (Pink soft ovals)
-    final cheekWidth = 24.0 * scale;
-    final cheekHeight = 14.0 * scale;
-    final leftCheekCenter = Offset(centerX - 95 * scale, centerY + 30 * scale);
-    final rightCheekCenter = Offset(centerX + 95 * scale, centerY + 30 * scale);
+    final cheekWidth = 18.0 * scale;
+    final cheekHeight = 10.0 * scale;
+    final leftCheekCenter = Offset(centerX - 70 * scale, centerY + 22 * scale);
+    final rightCheekCenter = Offset(centerX + 70 * scale, centerY + 22 * scale);
 
     canvas.drawOval(
       Rect.fromCenter(
@@ -220,33 +250,33 @@ class RobotFacePainter extends CustomPainter {
     );
 
     // 2. Draw Eyes
-    final eyeWidth = 34.0 * scale;
-    double leftEyeHeight = 58.0 * scale;
-    double rightEyeHeight = 58.0 * scale;
-    final leftEyeCenter = Offset(centerX - 60 * scale, centerY - 15 * scale);
-    final rightEyeCenter = Offset(centerX + 60 * scale, centerY - 15 * scale);
+    final eyeWidth = 24.0 * scale;
+    double leftEyeHeight = 44.0 * scale;
+    double rightEyeHeight = 44.0 * scale;
+    final leftEyeCenter = Offset(centerX - 44 * scale, centerY - 10 * scale);
+    final rightEyeCenter = Offset(centerX + 44 * scale, centerY - 10 * scale);
 
     if (mode == "STAND BY") {
       // Sleeping mode: Curved lines (horizontal arcs)
       // Pulse height slightly with sleep breathing
       final double sleepBreathe = 2.0 * sleepingValue * scale;
-      final double startY = centerY - 10 * scale + sleepBreathe;
+      final double startY = centerY - 6 * scale + sleepBreathe;
 
       final Path sleepingLeftEye = Path()
-        ..moveTo(leftEyeCenter.dx - 18 * scale, startY)
+        ..moveTo(leftEyeCenter.dx - 14 * scale, startY)
         ..quadraticBezierTo(
           leftEyeCenter.dx,
-          startY + 15 * scale,
-          leftEyeCenter.dx + 18 * scale,
+          startY + 10 * scale,
+          leftEyeCenter.dx + 14 * scale,
           startY,
         );
 
       final Path sleepingRightEye = Path()
-        ..moveTo(rightEyeCenter.dx - 18 * scale, startY)
+        ..moveTo(rightEyeCenter.dx - 14 * scale, startY)
         ..quadraticBezierTo(
           rightEyeCenter.dx,
-          startY + 15 * scale,
-          rightEyeCenter.dx + 18 * scale,
+          startY + 10 * scale,
+          rightEyeCenter.dx + 14 * scale,
           startY,
         );
 
@@ -275,25 +305,25 @@ class RobotFacePainter extends CustomPainter {
     }
 
     // 3. Draw Mouth
-    final mouthCenterY = centerY + 25 * scale;
+    final mouthCenterY = centerY + 18 * scale;
     if (mode == "STAND BY") {
       // Standby mouth: Small horizontal line
       final Path standbyMouth = Path()
-        ..moveTo(centerX - 10 * scale, mouthCenterY)
-        ..lineTo(centerX + 10 * scale, mouthCenterY);
+        ..moveTo(centerX - 8 * scale, mouthCenterY)
+        ..lineTo(centerX + 8 * scale, mouthCenterY);
       canvas.drawPath(standbyMouth, cyanStrokePaint);
     } else if (mode == "SAY") {
       // Talking animation mouth: Open and close or scale w-mouth
-      final double talkingHeight = (12.0 * talkingValue + 4.0) * scale;
+      final double talkingHeight = (9.0 * talkingValue + 3.0) * scale;
       
       // Draw a talking mouth path that opens and closes
       final Path talkingMouth = Path();
-      talkingMouth.moveTo(centerX - 18 * scale, mouthCenterY);
+      talkingMouth.moveTo(centerX - 14 * scale, mouthCenterY);
       // top lip
-      talkingMouth.quadraticBezierTo(centerX - 9 * scale, mouthCenterY - talkingHeight, centerX, mouthCenterY);
-      talkingMouth.quadraticBezierTo(centerX + 9 * scale, mouthCenterY - talkingHeight, centerX + 18 * scale, mouthCenterY);
+      talkingMouth.quadraticBezierTo(centerX - 7 * scale, mouthCenterY - talkingHeight, centerX, mouthCenterY);
+      talkingMouth.quadraticBezierTo(centerX + 7 * scale, mouthCenterY - talkingHeight, centerX + 14 * scale, mouthCenterY);
       // bottom lip
-      talkingMouth.quadraticBezierTo(centerX, mouthCenterY + talkingHeight, centerX - 18 * scale, mouthCenterY);
+      talkingMouth.quadraticBezierTo(centerX, mouthCenterY + talkingHeight, centerX - 14 * scale, mouthCenterY);
       
       canvas.drawPath(talkingMouth, cyanPaint);
     } else {
@@ -301,19 +331,19 @@ class RobotFacePainter extends CustomPainter {
       final Path catMouth = Path();
       
       // Left arc
-      catMouth.moveTo(centerX - 16 * scale, mouthCenterY - 4 * scale);
+      catMouth.moveTo(centerX - 12 * scale, mouthCenterY - 3 * scale);
       catMouth.quadraticBezierTo(
-        centerX - 8 * scale,
-        mouthCenterY + 8 * scale,
+        centerX - 6 * scale,
+        mouthCenterY + 6 * scale,
         centerX,
         mouthCenterY,
       );
       // Right arc
       catMouth.quadraticBezierTo(
-        centerX + 8 * scale,
-        mouthCenterY + 8 * scale,
-        centerX + 16 * scale,
-        mouthCenterY - 4 * scale,
+        centerX + 6 * scale,
+        mouthCenterY + 6 * scale,
+        centerX + 12 * scale,
+        mouthCenterY - 3 * scale,
       );
 
       canvas.drawPath(catMouth, cyanStrokePaint);

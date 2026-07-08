@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:path_provider/path_provider.dart';
 import 'speech_service.dart';
 
 class LocalSpeechService implements ISpeechService {
@@ -16,6 +17,7 @@ class LocalSpeechService implements ISpeechService {
   String languageCode = "vi"; // Vietnamese ("vi-VN")
   
   // Voice selection configuration
+  @override
   String selectedVoiceName = "vi-vn-x-vie-network";
   
   double speed = 0.6;
@@ -43,6 +45,88 @@ class LocalSpeechService implements ISpeechService {
     SpeechService.uartVid = vendorId;
     SpeechService.uartPid = productId;
     debugPrint("[LocalSpeechService] Saved UART device: VID=0x${vendorId.toRadixString(16).toUpperCase()}, PID=0x${productId.toRadixString(16).toUpperCase()}");
+  }
+
+  @override
+  Future<List<String>> getVietnameseVoices() async {
+    if (_tts == null) {
+      await _initEngine();
+    }
+    final List<String> viVoices = [];
+    try {
+      final List<dynamic>? voices = await _tts!.getVoices;
+      if (voices != null) {
+        for (var voice in voices) {
+          if (voice is Map) {
+            final name = voice['name']?.toString() ?? '';
+            final locale = voice['locale']?.toString().toLowerCase() ?? '';
+            if (locale.contains('vi') || name.toLowerCase().contains('vi-vn')) {
+              if (name.isNotEmpty) {
+                viVoices.add(name);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("[LocalSpeechService] Error getting voices: $e");
+    }
+    if (viVoices.isEmpty) {
+      viVoices.add("vi-vn-x-vie-network");
+      viVoices.add("vi-vn-x-gft-local");
+    }
+    return viVoices;
+  }
+
+  @override
+  Future<String?> synthesizeToFileAsync(String text, String voiceName) async {
+    if (_tts == null) {
+      await _initEngine();
+    }
+    try {
+      final List<dynamic>? voices = await _tts!.getVoices;
+      if (voices != null) {
+        final targetVoice = voices.firstWhere(
+          (v) => v is Map && v['name'].toString().toLowerCase() == voiceName.toLowerCase(),
+          orElse: () => null,
+        );
+        if (targetVoice != null) {
+          await _tts!.setVoice(Map<String, String>.from(targetVoice as Map));
+        }
+      }
+
+      String targetLang = languageCode;
+      if (targetLang.toLowerCase() == "vi") {
+        targetLang = "vi-VN";
+      }
+      await _tts!.setLanguage(targetLang);
+
+      if (speed != 1.0) {
+        await _tts!.setSpeechRate(speed);
+      }
+      if (pitch != 1.0) {
+        await _tts!.setPitch(pitch);
+      }
+      if (volume != 1.0) {
+        await _tts!.setVolume(volume);
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final String tempPath = "${tempDir.path}/synthesized_${DateTime.now().millisecondsSinceEpoch}.wav";
+      
+      await _tts!.awaitSynthCompletion(true);
+      final result = await _tts!.synthesizeToFile(text, tempPath, true);
+      
+      if (result == 1) {
+        debugPrint("[LocalSpeechService] Synthesized speech file created at: $tempPath");
+        return tempPath;
+      } else {
+        debugPrint("[LocalSpeechService] Failed to synthesize to file, result code: $result");
+      }
+    } catch (e) {
+      debugPrint("[LocalSpeechService] Error during synthesizeToFileAsync: $e");
+    }
+    return null;
   }
 
   Future<void> _initEngine() async {

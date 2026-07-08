@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/conversation.dart';
@@ -32,11 +32,60 @@ class ConversationViewModel extends ChangeNotifier {
   final List<ConversationMessage> _messages = [];
   int _currentRequestToken = 0;
 
+  List<String> _availableVoices = [];
+  String _selectedVoice = "";
+
   ConversationViewModel(this._llmService, this._speechService, this._ruleEngine) {
     _isMuted = _speechService.isMuted;
     
+    // Load voices
+    loadVoicesAsync();
+    
     // Auto-start conversation
     sendMessageAsync(hiddenInput: "Xin chào");
+  }
+
+  List<String> get availableVoices => _availableVoices;
+  String get selectedVoice => _selectedVoice;
+
+  Future<void> loadVoicesAsync() async {
+    try {
+      _availableVoices = await _speechService.getVietnameseVoices();
+      final currentVoice = _speechService.selectedVoiceName;
+      if (_availableVoices.contains(currentVoice)) {
+        _selectedVoice = currentVoice;
+      } else if (_availableVoices.isNotEmpty) {
+        _selectedVoice = _availableVoices.first;
+        _speechService.selectedVoiceName = _selectedVoice;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error loading voices: $e");
+    }
+  }
+
+  void changeVoice(String newVoice) {
+    _selectedVoice = newVoice;
+    _speechService.selectedVoiceName = newVoice;
+    notifyListeners();
+  }
+
+  Future<void> applyVoiceAndSpeakAsync(BuildContext context) async {
+    if (_selectedVoice.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Chưa chọn giọng nói")),
+        );
+      }
+      return;
+    }
+
+    final String textToSpeak = _messages.isNotEmpty ? _messages.first.content : "Xin chào";
+    
+    _speechService.selectedVoiceName = _selectedVoice;
+    
+    // Play it
+    await _speechService.speakAsync(textToSpeak);
   }
 
   String get userInput => _userInput;

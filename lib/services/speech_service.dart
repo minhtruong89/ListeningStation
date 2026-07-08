@@ -15,6 +15,10 @@ abstract class ISpeechService {
   bool get flagLocalTTS;
   set flagLocalTTS(bool value);
   void setUartDevice(int vendorId, int productId);
+  Future<List<String>> getVietnameseVoices();
+  String get selectedVoiceName;
+  set selectedVoiceName(String name);
+  Future<String?> synthesizeToFileAsync(String text, String voiceName);
 }
 
 class SpeechService implements ISpeechService {
@@ -39,6 +43,7 @@ class SpeechService implements ISpeechService {
   String? _apiKey;
   late String _dataDir;
   late String _tempMp3Path;
+  String _selectedVoiceName = 'nova';
 
   SpeechService({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client() {
     _initPath();
@@ -57,10 +62,61 @@ class SpeechService implements ISpeechService {
   set flagLocalTTS(bool value) {}
 
   @override
+  String get selectedVoiceName => _selectedVoiceName;
+
+  @override
+  set selectedVoiceName(String name) => _selectedVoiceName = name;
+
+  @override
   void setUartDevice(int vendorId, int productId) {
     uartVid = vendorId;
     uartPid = productId;
     debugPrint("[SpeechService] Saved UART device: VID=0x${vendorId.toRadixString(16).toUpperCase()}, PID=0x${productId.toRadixString(16).toUpperCase()}");
+  }
+
+  @override
+  Future<List<String>> getVietnameseVoices() async {
+    return ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+  }
+
+  @override
+  Future<String?> synthesizeToFileAsync(String text, String voiceName) async {
+    await _initPath();
+    if (text.trim().isEmpty || _apiKey == null || _apiKey!.isEmpty) {
+      return null;
+    }
+    try {
+      final requestBody = {
+        "model": "tts-1",
+        "input": text,
+        "voice": voiceName
+      };
+
+      final response = await _httpClient.post(
+        Uri.parse("https://api.openai.com/v1/audio/speech"),
+        headers: {
+          "Authorization": "Bearer $_apiKey",
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode(requestBody),
+      );
+
+      if (response.statusCode != 200) {
+        return null;
+      }
+
+      final audioBytes = response.bodyBytes;
+      if (audioBytes.isEmpty) return null;
+      
+      final tempDir = await getTemporaryDirectory();
+      final String tempPath = "${tempDir.path}/synthesized_${DateTime.now().millisecondsSinceEpoch}.mp3";
+      final mp3File = File(tempPath);
+      await mp3File.writeAsBytes(audioBytes);
+      return tempPath;
+    } catch (e) {
+      debugPrint("OpenAI synthesizeToFile Error: $e");
+    }
+    return null;
   }
 
   Future<void> _initPath() async {
@@ -148,7 +204,7 @@ class SpeechService implements ISpeechService {
       final requestBody = {
         "model": "tts-1",
         "input": text,
-        "voice": "nova"
+        "voice": _selectedVoiceName
       };
 
       final response = await _httpClient.post(

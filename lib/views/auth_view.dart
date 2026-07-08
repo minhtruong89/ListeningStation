@@ -23,6 +23,27 @@ class AuthView extends StatefulWidget {
 }
 
 class _AuthViewState extends State<AuthView> {
+
+  bool _isOverlayVisible = true;
+  Timer? _overlayTimer;
+
+  void _showOverlayAndResetTimer() {
+    if (!mounted || _isDisposed) return;
+    if (!_isOverlayVisible) {
+      setState(() {
+        _isOverlayVisible = true;
+      });
+    }
+    _overlayTimer?.cancel();
+    _overlayTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isOverlayVisible = false;
+        });
+      }
+    });
+  }
+
   final GlobalKey _previewBoundaryKey = GlobalKey();
   final TextEditingController _manualInputController = TextEditingController();
   MobileScannerController? _scannerController;
@@ -333,6 +354,7 @@ class _AuthViewState extends State<AuthView> {
     };
 
     LogService.retryButtonFocusNode = _rotateCameraFocusNode;
+    _showOverlayAndResetTimer();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -396,6 +418,7 @@ class _AuthViewState extends State<AuthView> {
   }
 
   void _startFallbackScanLoop() {
+    _overlayTimer?.cancel();
     _fallbackScanTimer?.cancel();
     _fallbackScanTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       if (_isDisposed || !mounted) {
@@ -593,6 +616,154 @@ class _AuthViewState extends State<AuthView> {
     }
   }
 
+
+  Widget _buildFullScreenCamera(AuthViewModel authVm) {
+    if (authVm.isVerified) {
+      return Container(
+        color: AppStyles.backgroundStart,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.check_circle,
+                color: AppStyles.successColor,
+                size: 64.0,
+              ),
+              const SizedBox(height: 16.0),
+              Text(
+                "Xác thực hoàn tất!",
+                style: AppStyles.bodyLarge.copyWith(
+                  color: AppStyles.successColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18.0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_useCameraPackageFallback) {
+      if (_cameraService.controller != null && _cameraService.controller!.value.isInitialized) {
+        return RepaintBoundary(
+          key: _previewBoundaryKey,
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: _buildCameraWidget(
+              (w, h) => SizedBox(
+                width: w,
+                height: h,
+                child: CameraPreview(_cameraService.controller!),
+              ),
+              authVm.cameraRotationQuarterTurns,
+            ),
+          ),
+        );
+      } else {
+        return Container(
+          color: AppStyles.backgroundStart,
+          child: const Center(
+            child: CircularProgressIndicator(
+              color: AppStyles.primaryAccent,
+            ),
+          ),
+        );
+      }
+    } else {
+      if (_scannerController == null) {
+        return Container(
+          color: AppStyles.backgroundStart,
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: AppStyles.primaryAccent,
+              ),
+              SizedBox(height: 16.0),
+              Text(
+                "Đang chuẩn bị camera...",
+                style: AppStyles.bodyMedium,
+              ),
+            ],
+          ),
+        );
+      } else {
+        return FittedBox(
+          fit: BoxFit.cover,
+          child: _buildCameraWidget(
+            (w, h) => SizedBox(
+              width: w,
+              height: h,
+              child: MobileScanner(
+                controller: _scannerController!,
+                onDetect: (capture) {
+                  // 1. Process Barcodes / QR Code
+                  final List<Barcode> barcodes = capture.barcodes;
+                  for (final barcode in barcodes) {
+                    if (barcode.rawValue != null) {
+                      authVm.handleQrScanned(barcode.rawValue!);
+                      break;
+                    }
+                  }
+
+                  // 2. Process OCR from current image frame on-the-fly
+                  final image = capture.image;
+                  final size = capture.size;
+                  if (image != null) {
+                    try {
+                      final inputImage = InputImage.fromBytes(
+                        bytes: image,
+                        metadata: InputImageMetadata(
+                          size: Size(size.width, size.height),
+                          rotation: InputImageRotation.rotation0deg,
+                          format: InputImageFormat.nv21,
+                          bytesPerRow: size.width.toInt(),
+                        ),
+                      );
+                      authVm.handleOcrImageFrame(inputImage);
+                    } catch (e) {
+                      debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
+                    }
+                  }
+                },
+                errorBuilder: (context, error, child) {
+                  debugPrint("[AuthView] MobileScanner error: ${error.errorCode}");
+                  if (error.errorCode == MobileScannerErrorCode.genericError) {
+                    if (!_hasAttemptedNoImageFallback) {
+                      _hasAttemptedNoImageFallback = true;
+                      final useFront = authVm.useFrontCamera;
+                      WidgetsBinding.instance.addPostFrameCallback((_) async {
+                        if (_isDisposed) return;
+                        if (_scannerController != null) {
+                          await _scannerController!.dispose();
+                          setState(() {
+                            _scannerController = null;
+                          });
+                        }
+                        await _initAndStartScanner(
+                          useFront ? CameraFacing.front : CameraFacing.back,
+                          returnImage: false,
+                        );
+                      });
+                      return Container(color: AppStyles.backgroundStart);
+                    } else if (!_useCameraPackageFallback) {
+                      _triggerCameraPackageFallback();
+                      return Container(color: AppStyles.backgroundStart);
+                    }
+                  }
+                  return Container(color: AppStyles.backgroundStart);
+                },
+              ),
+            ),
+            authVm.cameraRotationQuarterTurns,
+          ),
+        );
+      }
+    }
+  }
+
   bool _shouldRotate180() {
     if (_cameraService.cameras.isEmpty) return false;
     final firstCam = _cameraService.cameras.first;
@@ -667,18 +838,39 @@ class _AuthViewState extends State<AuthView> {
     scale = 1.2; // 1.5 - 1.2
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppStyles.backgroundGradient,
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              // Root View containing Header Row + Split View body
-              Focus(
-                descendantsAreFocusable: !authVm.isRangePopupVisible,
-                child: Column(
-                  children: [
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            _showOverlayAndResetTimer();
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: AppStyles.backgroundGradient,
+          ),
+          child: SafeArea(
+            child: Stack(
+              children: [
+                // 1. FULL SCREEN CAMERA PREVIEW LAYER
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black,
+                    child: _buildFullScreenCamera(authVm),
+                  ),
+                ),
+
+                // 2. FOREGROUND OVERLAY LAYER (Header, guide outline, and form panel)
+                IgnorePointer(
+                  ignoring: !_isOverlayVisible,
+                  child: AnimatedOpacity(
+                    opacity: _isOverlayVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Focus(
+                      descendantsAreFocusable: !authVm.isRangePopupVisible && _isOverlayVisible,
+                      child: Column(
+                        children: [
                     // TOP ROW: Logo, Title, and Rotate Camera button
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
@@ -760,12 +952,21 @@ class _AuthViewState extends State<AuthView> {
                     Expanded(
                       flex: 6,
                       child: Container(
-                        decoration: AppStyles.glassDecoration(),
+                        decoration: BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(16.0 * scale),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.1),
+                            width: 1.5,
+                          ),
+                        ),
                         clipBehavior: Clip.antiAlias,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                             // 1. Camera QR Scanner Viewport or success overlay
+                             // 1. Camera QR Scanner Viewport or success overlay (moved to full screen background)
+                             const SizedBox.shrink(),
+                             if (false) ...[
                              authVm.isVerified
                                  ? Container(
                                      color: AppStyles.backgroundStart,
@@ -959,6 +1160,7 @@ class _AuthViewState extends State<AuthView> {
                                         ),
                                       ),
 
+                             ],
                             // 2. Cyan Scanner Alignment Guides Overlay
                             Container(
                               width: 300.0 * scale,
@@ -1261,6 +1463,8 @@ class _AuthViewState extends State<AuthView> {
           ],
         ),
       ),
+    ),
+  ),
 
               // OVERLAY DIALOG: Financial limits sliding inputs popup
               if (authVm.isRangePopupVisible)
@@ -1529,7 +1733,8 @@ class _AuthViewState extends State<AuthView> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Future<void> _openKeyboardPopup() async {

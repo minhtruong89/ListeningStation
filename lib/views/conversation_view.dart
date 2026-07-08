@@ -583,31 +583,65 @@ class _ConversationViewState extends State<ConversationView> {
                     // TOP CONTROL BAR: Horizontal row of controls
                     Row(
                       children: [
-                        // Current system state indicator
+                        // Dropdown/Combobox of Available Vietnamese Voices
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 10.0 * scale),
+                          padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 2.0 * scale),
                           decoration: AppStyles.glassDecoration(radius: 8.0 * scale),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 10.0 * scale,
-                                height: 10.0 * scale,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
-                                ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: vm.selectedVoice.isNotEmpty && vm.availableVoices.contains(vm.selectedVoice)
+                                  ? vm.selectedVoice
+                                  : (vm.availableVoices.isNotEmpty ? vm.availableVoices.first : null),
+                              hint: Text(
+                                "Chọn giọng đọc",
+                                style: TextStyle(color: AppStyles.textSecondary, fontSize: 13.0 * scale),
                               ),
-                              SizedBox(width: 8.0 * scale),
-                              Text(
-                                vm.isProcessing ? "Đang xử lý phản hồi..." : "Trợ lý hoạt động",
-                                style: TextStyle(
-                                  color: vm.isProcessing ? AppStyles.warningColor : AppStyles.successColor,
-                                  fontSize: 13.0 * scale,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              dropdownColor: AppStyles.backgroundEnd,
+                              style: TextStyle(
+                                color: AppStyles.textPrimary, 
+                                fontSize: 13.0 * scale, 
+                                fontWeight: FontWeight.bold,
                               ),
-                            ],
+                              icon: Icon(Icons.arrow_drop_down, color: AppStyles.textPrimary),
+                              onChanged: (String? newValue) {
+                                if (newValue != null) {
+                                  vm.changeVoice(newValue);
+                                }
+                              },
+                              items: vm.availableVoices.map<DropdownMenuItem<String>>((String voice) {
+                                String displayVoice = voice;
+                                if (voice.contains('-')) {
+                                  final parts = voice.split('-');
+                                  if (parts.length > 2) {
+                                    displayVoice = parts.sublist(2).join('-');
+                                  }
+                                }
+                                return DropdownMenuItem<String>(
+                                  value: voice,
+                                  child: Text(
+                                    displayVoice,
+                                    style: TextStyle(color: AppStyles.textPrimary),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 12.0 * scale),
+  
+                        // "Chuyển giọng" button
+                        ElevatedButton.icon(
+                          onPressed: () => vm.applyVoiceAndSpeakAsync(context),
+                          icon: Icon(Icons.record_voice_over, size: 18.0 * scale),
+                          label: Text(
+                            "CHUYỂN GIỌNG",
+                            style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppStyles.primaryAccent,
+                            foregroundColor: AppStyles.backgroundEnd,
+                            padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 14.0 * scale),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
                           ),
                         ),
                         SizedBox(width: 12.0 * scale),

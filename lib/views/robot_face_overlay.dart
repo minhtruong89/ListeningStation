@@ -68,7 +68,7 @@ class _RobotFaceOverlayState extends State<RobotFaceOverlay> {
             child: Stack(
               children: [
                 Positioned(
-                  top: 24,
+                  top: 50,
                   right: 24, // Đưa khuôn mặt về góc phải phía trên
                   child: Opacity(
                     opacity: 0.85, // Blend alpha mờ nhẹ
@@ -154,7 +154,7 @@ class _RobotFaceWidgetState extends State<RobotFaceWidget>
           height: 180,
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
+              color: const Color(0xFF0F172A).withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(40),
               border: Border.all(
                 color: const Color(0xFFE2E8F0), // Cho lại border viền xám nhạt
@@ -172,7 +172,7 @@ class _RobotFaceWidgetState extends State<RobotFaceWidget>
             child: ClipRRect(
               borderRadius: BorderRadius.circular(30),
               child: Container(
-                color: const Color(0xFF0F172A),
+                color: Colors.transparent,
                 child: CustomPaint(
                   painter: RobotFacePainter(
                     mode: widget.mode,

@@ -24,18 +24,30 @@ class AuthView extends StatefulWidget {
 
 class _AuthViewState extends State<AuthView> {
 
-  bool _isOverlayVisible = true;
+  bool _isOverlayVisible = false;
   Timer? _overlayTimer;
 
   void _showOverlayAndResetTimer() {
+    debugPrint("[AuthView] _showOverlayAndResetTimer called. Current visibility: $_isOverlayVisible");
     if (!mounted || _isDisposed) return;
     if (!_isOverlayVisible) {
       setState(() {
         _isOverlayVisible = true;
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_isDisposed && _isOverlayVisible) {
+          debugPrint("[AuthView] Requesting focus on _rotateCameraFocusNode");
+          _rotateCameraFocusNode.requestFocus();
+        }
+      });
     }
-    _overlayTimer?.cancel();
+    if (_overlayTimer != null) {
+      debugPrint("[AuthView] Cancelling active overlay timer");
+      _overlayTimer!.cancel();
+    }
+    debugPrint("[AuthView] Starting 10s overlay timer");
     _overlayTimer = Timer(const Duration(seconds: 10), () {
+      debugPrint("[AuthView] 10s overlay timer expired! Hiding overlay.");
       if (mounted && !_isDisposed) {
         setState(() {
           _isOverlayVisible = false;
@@ -354,7 +366,6 @@ class _AuthViewState extends State<AuthView> {
     };
 
     LogService.retryButtonFocusNode = _rotateCameraFocusNode;
-    _showOverlayAndResetTimer();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -418,7 +429,6 @@ class _AuthViewState extends State<AuthView> {
   }
 
   void _startFallbackScanLoop() {
-    _overlayTimer?.cancel();
     _fallbackScanTimer?.cancel();
     _fallbackScanTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       if (_isDisposed || !mounted) {
@@ -948,302 +958,6 @@ class _AuthViewState extends State<AuthView> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                    // LEFT COLUMN: Viewfinder & Automatic Scanner
-                    Expanded(
-                      flex: 6,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(16.0 * scale),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.1),
-                            width: 1.5,
-                          ),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                             // 1. Camera QR Scanner Viewport or success overlay (moved to full screen background)
-                             const SizedBox.shrink(),
-                             if (false) ...[
-                             authVm.isVerified
-                                 ? Container(
-                                     color: AppStyles.backgroundStart,
-                                     child: Center(
-                                       child: Column(
-                                         mainAxisAlignment: MainAxisAlignment.center,
-                                         children: [
-                                           Icon(
-                                             Icons.check_circle,
-                                             color: AppStyles.successColor,
-                                             size: 64.0 * scale,
-                                           ),
-                                           SizedBox(height: 16.0 * scale),
-                                           Text(
-                                             "Xác thực hoàn tất!",
-                                             style: AppStyles.bodyLarge.copyWith(
-                                               color: AppStyles.successColor,
-                                               fontWeight: FontWeight.bold,
-                                               fontSize: 18.0 * scale,
-                                             ),
-                                           ),
-                                         ],
-                                       ),
-                                     ),
-                                   )
-                                 : _useCameraPackageFallback
-                                     ? (_cameraService.controller != null &&
-                                             _cameraService.controller!.value.isInitialized)
-                                         ? RepaintBoundary(
-                                             key: _previewBoundaryKey,
-                                         child: AspectRatio(
-                                           aspectRatio: 1.5,
-                                           child: ClipRect(
-                                             child: FittedBox(
-                                               fit: BoxFit.cover,
-                                               child: _buildCameraWidget(
-                                                 (w, h) => SizedBox(
-                                                   width: w,
-                                                   height: h,
-                                                   child: CameraPreview(_cameraService.controller!),
-                                                 ),
-                                                 authVm.cameraRotationQuarterTurns,
-                                               ),
-                                             ),
-                                           ),
-                                         ),
-                                       )
-                                    : Container(
-                                        color: AppStyles.backgroundStart,
-                                        child: const Center(
-                                          child: CircularProgressIndicator(
-                                            color: AppStyles.primaryAccent,
-                                          ),
-                                        ),
-                                      )
-                                : _scannerController == null
-                                    ? Container(
-                                        color: AppStyles.backgroundStart,
-                                        child: const Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            CircularProgressIndicator(
-                                              color: AppStyles.primaryAccent,
-                                            ),
-                                            SizedBox(height: 16.0),
-                                            Text(
-                                              "Đang chuẩn bị camera...",
-                                              style: AppStyles.bodyMedium,
-                                            ),
-                                          ],
-                                        ),
-                                      )
-                                    : AspectRatio(
-                                        aspectRatio: 1.5,
-                                        child: ClipRect(
-                                          child: FittedBox(
-                                            fit: BoxFit.cover,
-                                            child: _buildCameraWidget(
-                                              (w, h) => SizedBox(
-                                                width: w,
-                                                height: h,
-                                                child: MobileScanner(
-                                                  controller: _scannerController!,
-                                                  onDetect: (capture) {
-                                                    // 1. Process Barcodes / QR Code
-                                                    final List<Barcode> barcodes = capture.barcodes;
-                                                    for (final barcode in barcodes) {
-                                                      if (barcode.rawValue != null) {
-                                                        authVm.handleQrScanned(barcode.rawValue!);
-                                                        break;
-                                                      }
-                                                    }
-
-                                                    // 2. Process OCR from current image frame on-the-fly (only if image data is returned)
-                                                    final image = capture.image;
-                                                    final size = capture.size;
-                                                    if (image != null) {
-                                                      try {
-                                                        final inputImage = InputImage.fromBytes(
-                                                          bytes: image,
-                                                          metadata: InputImageMetadata(
-                                                            size: Size(size.width, size.height),
-                                                            rotation: InputImageRotation.rotation0deg, // standard camera frame angle
-                                                            format: InputImageFormat.nv21,
-                                                            bytesPerRow: size.width.toInt(),
-                                                          ),
-                                                        );
-                                                        authVm.handleOcrImageFrame(inputImage);
-                                                      } catch (e) {
-                                                        debugPrint("[AuthView] Error converting live frame to InputImage for OCR: $e");
-                                                      }
-                                                    }
-                                                  },
-                                                  errorBuilder: (context, error, child) {
-                                                    debugPrint("[AuthView] MobileScanner error: ${error.errorCode}, code: ${error.errorDetails?.code}, msg: ${error.errorDetails?.message}, details: ${error.errorDetails?.details}");
-                                                    
-                                                    // If we get genericError during live streaming and returnImage is true,
-                                                    // try falling back to returnImage: false (no raw frame byte delivery to Flutter)
-                                                    if (error.errorCode == MobileScannerErrorCode.genericError) {
-                                                      if (!_hasAttemptedNoImageFallback) {
-                                                        _hasAttemptedNoImageFallback = true;
-                                                        final useFront = authVm.useFrontCamera;
-                                                        WidgetsBinding.instance.addPostFrameCallback((_) async {
-                                                          if (_isDisposed) return;
-                                                          debugPrint("[AuthView] Caught genericError. Re-initializing with returnImage = false...");
-                                                          if (_scannerController != null) {
-                                                            await _scannerController!.dispose();
-                                                            setState(() {
-                                                              _scannerController = null;
-                                                            });
-                                                          }
-                                                          await _initAndStartScanner(
-                                                            useFront ? CameraFacing.front : CameraFacing.back,
-                                                            returnImage: false,
-                                                          );
-                                                        });
-                                                        
-                                                        return Container(
-                                                          color: AppStyles.backgroundStart,
-                                                          child: const Center(
-                                                            child: CircularProgressIndicator(
-                                                              color: AppStyles.primaryAccent,
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else if (!_useCameraPackageFallback) {
-                                                        _triggerCameraPackageFallback();
-                                                        return Container(
-                                                          color: AppStyles.backgroundStart,
-                                                          child: const Center(
-                                                            child: CircularProgressIndicator(
-                                                              color: AppStyles.primaryAccent,
-                                                            ),
-                                                          ),
-                                                        );
-                                                      }
-                                                    }
-
-                                                    return Container(
-                                                      color: AppStyles.backgroundStart,
-                                                      child: Padding(
-                                                        padding: const EdgeInsets.all(16.0),
-                                                        child: Column(
-                                                          mainAxisAlignment: MainAxisAlignment.center,
-                                                          children: [
-                                                            const Icon(Icons.videocam_off, color: AppStyles.errorColor, size: 48.0),
-                                                            const SizedBox(height: 12.0),
-                                                            Text(
-                                                              "Lỗi camera: ${error.errorCode.name}",
-                                                              style: AppStyles.bodyMedium.copyWith(color: AppStyles.errorColor, fontWeight: FontWeight.bold),
-                                                              textAlign: TextAlign.center,
-                                                            ),
-                                                            if (error.errorDetails != null) ...[
-                                                              const SizedBox(height: 8.0),
-                                                              Text(
-                                                                "Code: ${error.errorDetails?.code}\nMsg: ${error.errorDetails?.message}\nDetails: ${error.errorDetails?.details}",
-                                                                style: AppStyles.caption.copyWith(color: AppStyles.textSecondary),
-                                                                textAlign: TextAlign.center,
-                                                              ),
-                                                            ],
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    );
-                                                  },
-                                                ),
-                                              ),
-                                              authVm.cameraRotationQuarterTurns,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-
-                             ],
-                            // 2. Cyan Scanner Alignment Guides Overlay
-                            Container(
-                              width: 300.0 * scale,
-                              height: 190.0 * scale,
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: AppStyles.primaryAccent,
-                                  width: 2.5 * scale,
-                                ),
-                                borderRadius: BorderRadius.circular(16.0 * scale),
-                              ),
-                            ),
-                            
-                            // 3. Scan Sweep Animation Indicator
-                            Positioned(
-                              top: 60.0 * scale,
-                              child: Container(
-                                width: 430.0 * scale,
-                                height: 3.0 * scale,
-                                decoration: BoxDecoration(
-                                  color: AppStyles.primaryAccent,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppStyles.primaryAccent.withValues(alpha: 0.8),
-                                      blurRadius: 8.0 * scale,
-                                      spreadRadius: 2.0 * scale,
-                                    )
-                                  ]
-                                ),
-                              ),
-                            ),
-
-                            // 4. Instructions
-                            Positioned(
-                              bottom: 24.0 * scale,
-                              child: Container(
-                                padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 8.0 * scale),
-                                decoration: BoxDecoration(
-                                  color: Colors.black54,
-                                  borderRadius: BorderRadius.circular(20.0 * scale),
-                                ),
-                                child: Text(
-                                  "Căn chỉnh QR CCCD hoặc thẻ của bạn vào ô quét",
-                                  style: AppStyles.bodyMedium.copyWith(
-                                    color: AppStyles.primaryAccent,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14.0 * scale,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            // 5. Fallback analyzer status overlay
-                            if (_isCapturingFallback)
-                              Container(
-                                color: Colors.black45,
-                                child: Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      CircularProgressIndicator(
-                                        color: AppStyles.primaryAccent,
-                                        strokeWidth: 4.0 * scale,
-                                      ),
-                                      SizedBox(height: 16.0 * scale),
-                                      Text(
-                                        "Đang phân tích hình ảnh...",
-                                        style: AppStyles.bodyMedium.copyWith(
-                                          color: AppStyles.primaryAccent,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14.0 * scale,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 24.0),
-
                     // RIGHT COLUMN: Sign-In status and Manual input panel
                     Expanded(
                       flex: 4,
@@ -1451,6 +1165,71 @@ class _AuthViewState extends State<AuthView> {
                                    ),
                                  ),
                                ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 24.0),
+
+                    // RIGHT COLUMN: Viewfinder & Automatic Scanner (swapped position, now displays OCR results)
+                    Expanded(
+                      flex: 6,
+                      child: Container(
+                        padding: EdgeInsets.all(20.0 * scale),
+                        decoration: AppStyles.glassDecoration(
+                          borderColor: AppStyles.primaryAccent.withValues(alpha: 0.15),
+                          radius: 16.0 * scale,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.document_scanner,
+                                  color: AppStyles.primaryAccent,
+                                  size: 24.0 * scale,
+                                ),
+                                SizedBox(width: 12.0 * scale),
+                                Text(
+                                  "VĂN BẢN NHẬN DIỆN ĐƯỢC",
+                                  style: AppStyles.bodyLarge.copyWith(
+                                    fontSize: 16.0 * scale,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppStyles.primaryAccent,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 16.0 * scale),
+                            Expanded(
+                              child: Container(
+                                padding: EdgeInsets.all(16.0 * scale),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(12.0 * scale),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    width: 1.0,
+                                  ),
+                                ),
+                                child: SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  child: Text(
+                                    authVm.detectedText.isNotEmpty
+                                        ? authVm.detectedText
+                                        : "Chưa nhận diện được dữ liệu. Vui lòng quét mã QR hoặc nhập thủ công.",
+                                    style: AppStyles.bodyMedium.copyWith(
+                                      color: authVm.detectedText.isNotEmpty
+                                          ? AppStyles.textPrimary
+                                          : AppStyles.textSecondary.withValues(alpha: 0.7),
+                                      fontSize: 14.0 * scale,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),

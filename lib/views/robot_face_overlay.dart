@@ -147,24 +147,12 @@ class _RobotFaceWidgetState extends State<RobotFaceWidget>
         return SizedBox(
           width: 640,
           height: 480,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
-              borderRadius: BorderRadius.circular(85),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
-            child: CustomPaint(
-              painter: RobotFacePainter(
-                mode: widget.mode,
-                talkingValue: _talkingController.value,
-                blinkValue: _blinkController.value,
-                sleepingValue: _sleepingController.value,
-              ),
+          child: CustomPaint(
+            painter: RobotFacePainter(
+              mode: widget.mode,
+              talkingValue: _talkingController.value,
+              blinkValue: _blinkController.value,
+              sleepingValue: _sleepingController.value,
             ),
           ),
         );

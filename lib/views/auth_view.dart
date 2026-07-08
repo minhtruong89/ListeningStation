@@ -1165,45 +1165,7 @@ class _AuthViewState extends State<AuthView> {
                               SizedBox(height: 12.0 * scale),
                             ],
 
-                            // Display recognized text content
-                            if (authVm.detectedText.isNotEmpty) ...[
-                              Container(
-                                padding: EdgeInsets.all(12.0 * scale),
-                                decoration: AppStyles.glassDecoration(
-                                  radius: 16.0 * scale,
-                                  borderColor: Colors.white10,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      "Nội dung nhận dạng được:",
-                                      style: TextStyle(
-                                        color: AppStyles.primaryAccent,
-                                        fontSize: 12.0 * scale,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    SizedBox(height: 6.0 * scale),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 65.0 * scale,
-                                      child: SingleChildScrollView(
-                                        child: Text(
-                                          authVm.detectedText,
-                                          style: TextStyle(
-                                            fontFamily: 'monospace',
-                                            fontSize: 12.0 * scale,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              SizedBox(height: 12.0 * scale),
-                            ],
+
 
                             // Manual CCCD Input
                             Row(

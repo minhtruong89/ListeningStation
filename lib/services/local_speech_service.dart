@@ -61,6 +61,7 @@ class LocalSpeechService implements ISpeechService {
         debugPrint("[LocalSpeechService] Speech completed.");
         _silTimer?.cancel();
         _silTimer = null;
+        SpeechService.sendAnimationFace("SILIENCE");
       });
 
       ttsInstance.setCancelHandler(() {
@@ -70,6 +71,7 @@ class LocalSpeechService implements ISpeechService {
         if (SpeechService.flagSendUARTGlobal) {
           _sendUartMessage("SIL\r\n"); // Send SIL on cancel to be safe
         }
+        SpeechService.sendAnimationFace("SILIENCE");
       });
 
       ttsInstance.setErrorHandler((message) {
@@ -79,6 +81,7 @@ class LocalSpeechService implements ISpeechService {
         if (SpeechService.flagSendUARTGlobal) {
           _sendUartMessage("SIL\r\n"); // Send SIL on error to be safe
         }
+        SpeechService.sendAnimationFace("SILIENCE");
       });
 
       _tts = ttsInstance;
@@ -218,6 +221,7 @@ class LocalSpeechService implements ISpeechService {
       if (SpeechService.flagSendUARTGlobal) {
         await _sendUartMessage("SAY\r\n");
       }
+      SpeechService.sendAnimationFace("SAY");
 
       // Start fallback timer just in case completion is not called
       final int wordCount = text.split(RegExp(r'\s+')).length;
@@ -227,6 +231,7 @@ class LocalSpeechService implements ISpeechService {
         if (SpeechService.flagSendUARTGlobal) {
           _sendUartMessage("SIL\r\n");
         }
+        SpeechService.sendAnimationFace("SILIENCE");
       });
 
       await _tts!.speak(text);
@@ -236,8 +241,10 @@ class LocalSpeechService implements ISpeechService {
       if (SpeechService.flagSendUARTGlobal) {
         await _sendUartMessage("SIL\r\n");
       }
+      SpeechService.sendAnimationFace("SILIENCE");
     } catch (e) {
       debugPrint("[LocalSpeechService] Offline TTS Error: $e");
+      SpeechService.sendAnimationFace("SILIENCE");
     }
   }
 
@@ -251,6 +258,7 @@ class LocalSpeechService implements ISpeechService {
         debugPrint("[LocalSpeechService] stop()");
         _sendUartMessage("SIL\r\n");
       }
+      SpeechService.sendAnimationFace("SILIENCE");
     } catch (e) {
       debugPrint("[LocalSpeechService] Error stopping audio: $e");
     }

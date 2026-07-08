@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 class LogService {
-  static bool flagWriteLogDevice = true;
+  static bool flagWriteLogDevice = false;
   static final List<String> logs = [];
   static final ValueNotifier<int> logUpdateNotifier = ValueNotifier(0);
   static final ValueNotifier<bool> consoleVisibilityNotifier = ValueNotifier(false);

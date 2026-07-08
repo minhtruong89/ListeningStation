@@ -20,8 +20,17 @@ abstract class ISpeechService {
 class SpeechService implements ISpeechService {
   static int? uartVid;
   static int? uartPid;
-  static bool flagSendUARTGlobal = true;
+  static bool flagSendUARTGlobal = false;
   static const int uartBaudRate = 115200;
+
+  static bool flagSendSignalLocal = true;
+
+  static final ValueNotifier<String> faceAnimationNotifier = ValueNotifier<String>("HELLO");
+
+  static void sendAnimationFace(String mode) {
+    debugPrint("[SpeechService] sendAnimationFace: $mode");
+    faceAnimationNotifier.value = mode;
+  }
 
   final http.Client _httpClient;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -147,7 +156,7 @@ class SpeechService implements ISpeechService {
         headers: {
           "Authorization": "Bearer $_apiKey",
           "Content-Type": "application/json",
-        },
+          },
         body: jsonEncode(requestBody),
       );
 
@@ -172,12 +181,15 @@ class SpeechService implements ISpeechService {
       if (flagSendUARTGlobal) {
         await _sendUartMessage("SAY\n");
       }
+      sendAnimationFace("SAY");
       await _audioPlayer.play();
       if (flagSendUARTGlobal) {
         await _sendUartMessage("SIL\n");
       }
+      sendAnimationFace("SILIENCE");
     } catch (e) {
       debugPrint("OpenAI TTS Error: $e");
+      sendAnimationFace("SILIENCE");
     }
   }
 
@@ -188,6 +200,7 @@ class SpeechService implements ISpeechService {
       if (flagSendUARTGlobal) {
         _sendUartMessage("SIL\n");
       }
+      sendAnimationFace("SILIENCE");
     } catch (e) {
       debugPrint("Error stopping audio player: $e");
     }

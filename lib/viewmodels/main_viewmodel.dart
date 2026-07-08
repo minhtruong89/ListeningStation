@@ -6,6 +6,7 @@ import '../services/rule_engine_service.dart';
 import '../services/camera_service.dart';
 import '../services/data_service.dart';
 import '../services/llm_service.dart';
+import '../services/speech_service.dart';
 
 enum AppStage {
   splash,
@@ -114,6 +115,7 @@ class MainViewModel extends ChangeNotifier {
     _isValidating = false;
     if (allValid) {
       _currentStage = AppStage.auth;
+      SpeechService.sendAnimationFace("HELLO");
     } else {
       _currentStage = AppStage.splash; // Stay on splash showing error
     }

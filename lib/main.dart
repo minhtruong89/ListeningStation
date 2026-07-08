@@ -17,6 +17,7 @@ import 'viewmodels/conversation_viewmodel.dart';
 import 'viewmodels/result_viewmodel.dart';
 import 'views/main_view.dart';
 import 'views/log_console_overlay.dart';
+import 'views/robot_face_overlay.dart';
 
 void main() async {
   // Initialize custom logs capturing
@@ -104,7 +105,9 @@ class ListeningStationApp extends StatelessWidget {
         fontFamily: 'Roboto', // Modern standard clean typeface
       ),
       builder: (context, child) {
-        return LogConsoleOverlay(child: child ?? const SizedBox());
+        return LogConsoleOverlay(
+          child: RobotFaceOverlay(child: child ?? const SizedBox()),
+        );
       },
       home: const MainView(),
     );

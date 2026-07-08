@@ -4,6 +4,7 @@ import '../utils/styles.dart';
 import 'package:flutter/services.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../services/log_service.dart';
+import '../services/speech_service.dart';
 
 class SplashView extends StatefulWidget {
   const SplashView({super.key});
@@ -42,6 +43,9 @@ class _SplashViewState extends State<SplashView> {
     };
 
     LogService.retryButtonFocusNode = _retryFocusNode;
+
+    // khi app vừa start lên thì sendAnimationFace("STAND BY")
+    SpeechService.sendAnimationFace("STAND BY");
   }
 
   @override

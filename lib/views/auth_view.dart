@@ -216,7 +216,7 @@ class _AuthViewState extends State<AuthView> {
         setState(() {
           _isRotateCameraFocused = _rotateCameraFocusNode.hasFocus;
         });
-        if (_rotateCameraFocusNode.hasFocus) {
+        if (_rotateCameraFocusNode.hasFocus || !_isOverlayVisible) {
           _enableScanner();
         } else {
           _disableScanner();
@@ -387,7 +387,7 @@ class _AuthViewState extends State<AuthView> {
     );
 
     try {
-      if (_rotateCameraFocusNode.hasFocus) {
+      if (_rotateCameraFocusNode.hasFocus || !_isOverlayVisible) {
         await controller.start();
         _isAutoScanActive = true;
       } else {
@@ -494,7 +494,7 @@ class _AuthViewState extends State<AuthView> {
       await _cameraService.startAsync();
       if (mounted) {
         setState(() {});
-        if (_rotateCameraFocusNode.hasFocus) {
+        if (_rotateCameraFocusNode.hasFocus || !_isOverlayVisible) {
           _startFallbackScanLoop();
         } else {
           final authVm = context.read<AuthViewModel>();

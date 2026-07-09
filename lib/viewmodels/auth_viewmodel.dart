@@ -281,7 +281,7 @@ class AuthViewModel extends ChangeNotifier {
         dailyCountText: "(Lần $dailyCount/ngày)",
       ));
 
-      await _speechService.speakAsync("Đã xác nhận ${op.name}");
+      await _speechService.speakAsync("Đã xác nhận ${op.name}. Vui lòng đề xuất hạn mức phê duyệt.");
       notifyListeners();
 
       if (_verifiedOperators.length >= _requiredCount) {

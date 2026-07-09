@@ -18,7 +18,7 @@ class LocalSpeechService implements ISpeechService {
   
   // Voice selection configuration
   @override
-  String selectedVoiceName = "vi-vn-x-vie-network";
+  String selectedVoiceName = "vi-vn-x-vic-network";
   
   double speed = 0.6;
   double pitch = 1.0;

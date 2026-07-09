@@ -101,15 +101,9 @@ class LocalSpeechService implements ISpeechService {
       }
       await _tts!.setLanguage(targetLang);
 
-      if (speed != 1.0) {
-        await _tts!.setSpeechRate(speed);
-      }
-      if (pitch != 1.0) {
-        await _tts!.setPitch(pitch);
-      }
-      if (volume != 1.0) {
-        await _tts!.setVolume(volume);
-      }
+      await _tts!.setSpeechRate(speed);
+      await _tts!.setPitch(pitch);
+      await _tts!.setVolume(volume);
 
       final tempDir = await getTemporaryDirectory();
       final String tempPath = "${tempDir.path}/synthesized_${DateTime.now().millisecondsSinceEpoch}.wav";
@@ -178,6 +172,32 @@ class LocalSpeechService implements ISpeechService {
           final List<dynamic>? engines = await ttsInstance.getEngines;
           final String? defaultEngine = await ttsInstance.getDefaultEngine;
           debugPrint("[LocalSpeechService] Active Android TTS Engine: $defaultEngine, Available: $engines");
+
+          if (defaultEngine != null && defaultEngine.toLowerCase().contains("rhvoice")) {
+            speed = 0.6;
+            pitch = 1.0;
+            volume = 1.0;
+            selectedVoiceName = "vi-vu";
+            final List<dynamic>? voices = await ttsInstance.getVoices;
+            if (voices != null) {
+              for (var voice in voices) {
+                if (voice is Map) {
+                  final name = voice['name']?.toString() ?? '';
+                  if (name.toLowerCase().contains("vi-vu") || name.toLowerCase().contains("vivu")) {
+                    selectedVoiceName = name;
+                    break;
+                  }
+                }
+              }
+            }
+            debugPrint("[LocalSpeechService] Detected RHVoice engine. Applied defaults: voice=$selectedVoiceName, speed=$speed");
+          } else {
+            speed = 0.6;
+            pitch = 1.0;
+            volume = 1.0;
+            selectedVoiceName = "vi-vn-x-vic-network";
+            debugPrint("[LocalSpeechService] Detected non-RHVoice engine ($defaultEngine). Applied defaults: voice=$selectedVoiceName, speed=$speed");
+          }
           
           // Query and log only Vietnamese voices on startup
           final List<dynamic>? voices = await ttsInstance.getVoices;
@@ -291,15 +311,9 @@ class LocalSpeechService implements ISpeechService {
         }
       }
 
-      if (speed != 1.0) {
-        await _tts!.setSpeechRate(speed);
-      }
-      if (pitch != 1.0) {
-        await _tts!.setPitch(pitch);
-      }
-      if (volume != 1.0) {
-        await _tts!.setVolume(volume);
-      }
+      await _tts!.setSpeechRate(speed);
+      await _tts!.setPitch(pitch);
+      await _tts!.setVolume(volume);
 
       // We now await the UART SAY so it doesn't overlap with audio starting too early
       if (SpeechService.flagSendUARTGlobal) {

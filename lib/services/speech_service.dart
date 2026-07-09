@@ -19,6 +19,8 @@ abstract class ISpeechService {
   String get selectedVoiceName;
   set selectedVoiceName(String name);
   Future<String?> synthesizeToFileAsync(String text, String voiceName);
+  String get onlineTtsProvider;
+  set onlineTtsProvider(String provider);
 }
 
 class SpeechService implements ISpeechService {
@@ -40,10 +42,24 @@ class SpeechService implements ISpeechService {
   final AudioPlayer _audioPlayer = AudioPlayer();
   
   bool _isMuted = false;
-  String? _apiKey;
+  String? _openaiApiKey;
+  String? _googleAiApiKey;
   late String _dataDir;
-  late String _tempMp3Path;
-  String _selectedVoiceName = 'nova';
+  String _selectedVoiceName = 'Sulafat';
+  String _onlineTtsProvider = 'GoogleAI';
+
+  @override
+  String get onlineTtsProvider => _onlineTtsProvider;
+
+  @override
+  set onlineTtsProvider(String provider) {
+    _onlineTtsProvider = provider;
+    if (provider == 'GoogleAI') {
+      _selectedVoiceName = 'Sulafat';
+    } else {
+      _selectedVoiceName = 'nova';
+    }
+  }
 
   SpeechService({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client() {
     _initPath();
@@ -76,56 +92,213 @@ class SpeechService implements ISpeechService {
 
   @override
   Future<List<String>> getVietnameseVoices() async {
-    return ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+    if (_onlineTtsProvider == 'GoogleAI') {
+      return ['Zephyr', 'Sulafat'];
+    } else {
+      return ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+    }
   }
 
   @override
   Future<String?> synthesizeToFileAsync(String text, String voiceName) async {
     await _initPath();
-    if (text.trim().isEmpty || _apiKey == null || _apiKey!.isEmpty) {
+    _loadApiKey();
+
+    if (text.trim().isEmpty) {
       return null;
     }
-    try {
-      final requestBody = {
-        "model": "tts-1",
-        "input": text,
-        "voice": voiceName
-      };
 
-      final response = await _httpClient.post(
-        Uri.parse("https://api.openai.com/v1/audio/speech"),
-        headers: {
-          "Authorization": "Bearer $_apiKey",
-          "Content-Type": "application/json",
-        },
-        body: jsonEncode(requestBody),
-      );
-
-      if (response.statusCode != 200) {
+    if (_onlineTtsProvider == "GoogleAI") {
+      if (_googleAiApiKey == null || _googleAiApiKey!.isEmpty) {
+        debugPrint("[SpeechService] GoogleAI API Key is missing.");
         return null;
       }
+      try {
+        final String promptText = "[giọng nữ miền Nam dễ thương, tình cảm dịu dàng] $text";
 
-      final audioBytes = response.bodyBytes;
-      if (audioBytes.isEmpty) return null;
-      
-      final tempDir = await getTemporaryDirectory();
-      final String tempPath = "${tempDir.path}/synthesized_${DateTime.now().millisecondsSinceEpoch}.mp3";
-      final mp3File = File(tempPath);
-      await mp3File.writeAsBytes(audioBytes);
-      return tempPath;
-    } catch (e) {
-      debugPrint("OpenAI synthesizeToFile Error: $e");
+        final requestBody = {
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": promptText
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+              "voiceConfig": {
+                "prebuiltVoiceConfig": {
+                  "voiceName": voiceName
+                }
+              }
+            }
+          }
+        };
+
+        final response = await _httpClient.post(
+          Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent?key=$_googleAiApiKey"),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: jsonEncode(requestBody),
+        );
+
+        if (response.statusCode != 200) {
+          debugPrint("GoogleAI API Error for TTS (${response.statusCode}): ${response.body}");
+          return null;
+        }
+
+        final doc = jsonDecode(response.body);
+        final candidates = doc['candidates'] as List?;
+        if (candidates != null && candidates.isNotEmpty) {
+          final parts = candidates[0]['content']['parts'] as List?;
+          if (parts != null && parts.isNotEmpty) {
+            final inlineData = parts[0]['inlineData'];
+            if (inlineData != null) {
+              final base64Data = inlineData['data']?.toString();
+              final mimeType = inlineData['mimeType']?.toString() ?? '';
+              debugPrint('[SpeechService] GoogleAI audio mimeType: $mimeType');
+              if (base64Data != null) {
+                Uint8List audioBytes = base64.decode(base64Data);
+                // Gemini TTS returns audio/l16 or audio/pcm — raw 16-bit little-endian PCM
+                // Despite the L16 label (RFC big-endian), Gemini sends little-endian data
+                // so we only need to add a WAV header, no byte-swapping needed.
+                final lowerMime = mimeType.toLowerCase();
+                if (lowerMime.contains('l16') || lowerMime.contains('pcm') || lowerMime.isEmpty) {
+                  final sampleRate = _parseSampleRate(mimeType, 24000);
+                  final numChannels = _parseChannels(mimeType, 1);
+                  audioBytes = _buildWavBytes(audioBytes, sampleRate: sampleRate, numChannels: numChannels);
+                  debugPrint('[SpeechService] Wrapped $mimeType -> WAV (${audioBytes.length} bytes, ${sampleRate}Hz, ${numChannels}ch)');
+                }
+                final tempDir = await getTemporaryDirectory();
+                final String tempPath = "${tempDir.path}/synthesized_${DateTime.now().millisecondsSinceEpoch}.wav";
+                final wavFile = File(tempPath);
+                await wavFile.writeAsBytes(audioBytes);
+                return tempPath;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint("GoogleAI synthesizeToFile Error: $e");
+      }
+    } else {
+      if (_openaiApiKey == null || _openaiApiKey!.isEmpty) {
+        debugPrint("[SpeechService] OpenAI API Key is missing.");
+        return null;
+      }
+      try {
+        final requestBody = {
+          "model": "tts-1",
+          "input": text,
+          "voice": voiceName
+        };
+
+        final response = await _httpClient.post(
+          Uri.parse("https://api.openai.com/v1/audio/speech"),
+          headers: {
+            "Authorization": "Bearer $_openaiApiKey",
+            "Content-Type": "application/json",
+          },
+          body: jsonEncode(requestBody),
+        );
+
+        if (response.statusCode != 200) {
+          debugPrint("OpenAI API Error for TTS (${response.statusCode}): ${response.body}");
+          return null;
+        }
+
+        final audioBytes = response.bodyBytes;
+        if (audioBytes.isEmpty) return null;
+        
+        final tempDir = await getTemporaryDirectory();
+        final String tempPath = "${tempDir.path}/synthesized_${DateTime.now().millisecondsSinceEpoch}.mp3";
+        final mp3File = File(tempPath);
+        await mp3File.writeAsBytes(audioBytes);
+        return tempPath;
+      } catch (e) {
+        debugPrint("OpenAI synthesizeToFile Error: $e");
+      }
     }
     return null;
+  }
+
+  /// Parses sample rate from mimeType string like "audio/l16; rate = 24000"
+  int _parseSampleRate(String mimeType, int defaultRate) {
+    final match = RegExp(r'rate\s*=\s*(\d+)').firstMatch(mimeType);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '') ?? defaultRate;
+    }
+    return defaultRate;
+  }
+
+  /// Parses channel count from mimeType string like "audio/l16; channels = 1"
+  int _parseChannels(String mimeType, int defaultChannels) {
+    final match = RegExp(r'channels\s*=\s*(\d+)').firstMatch(mimeType);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '') ?? defaultChannels;
+    }
+    return defaultChannels;
+  }
+
+  /// Swaps byte order of 16-bit samples (big-endian L16 -> little-endian PCM for WAV).
+  Uint8List _swapByteOrder(Uint8List bytes) {
+    final result = Uint8List(bytes.length);
+    for (int i = 0; i < bytes.length - 1; i += 2) {
+      result[i]     = bytes[i + 1];
+      result[i + 1] = bytes[i];
+    }
+    return result;
+  }
+
+  /// Wraps raw 16-bit mono PCM bytes into a valid WAV file with RIFF header.
+  Uint8List _buildWavBytes(Uint8List pcmBytes, {int sampleRate = 24000, int numChannels = 1, int bitsPerSample = 16}) {
+    final int byteRate = sampleRate * numChannels * bitsPerSample ~/ 8;
+    final int blockAlign = numChannels * bitsPerSample ~/ 8;
+    final int dataSize = pcmBytes.length;
+    final int chunkSize = 36 + dataSize;
+
+    final buffer = ByteData(44 + dataSize);
+    // RIFF chunk
+    buffer.setUint8(0, 0x52); // R
+    buffer.setUint8(1, 0x49); // I
+    buffer.setUint8(2, 0x46); // F
+    buffer.setUint8(3, 0x46); // F
+    buffer.setUint32(4, chunkSize, Endian.little);
+    buffer.setUint8(8, 0x57);  // W
+    buffer.setUint8(9, 0x41);  // A
+    buffer.setUint8(10, 0x56); // V
+    buffer.setUint8(11, 0x45); // E
+    // fmt chunk
+    buffer.setUint8(12, 0x66); // f
+    buffer.setUint8(13, 0x6D); // m
+    buffer.setUint8(14, 0x74); // t
+    buffer.setUint8(15, 0x20); // (space)
+    buffer.setUint32(16, 16, Endian.little);         // subchunk size
+    buffer.setUint16(20, 1, Endian.little);          // PCM = 1
+    buffer.setUint16(22, numChannels, Endian.little);
+    buffer.setUint32(24, sampleRate, Endian.little);
+    buffer.setUint32(28, byteRate, Endian.little);
+    buffer.setUint16(32, blockAlign, Endian.little);
+    buffer.setUint16(34, bitsPerSample, Endian.little);
+    // data chunk
+    buffer.setUint8(36, 0x64); // d
+    buffer.setUint8(37, 0x61); // a
+    buffer.setUint8(38, 0x74); // t
+    buffer.setUint8(39, 0x61); // a
+    buffer.setUint32(40, dataSize, Endian.little);
+
+    final result = buffer.buffer.asUint8List();
+    result.setRange(44, 44 + dataSize, pcmBytes);
+    return result;
   }
 
   Future<void> _initPath() async {
     final appDir = await getApplicationDocumentsDirectory();
     _dataDir = join(appDir.path, 'ListeningStation');
-
-    final tempDir = await getTemporaryDirectory();
-    _tempMp3Path = join(tempDir.path, 'ListeningStation_TTS_${DateTime.now().microsecondsSinceEpoch}.mp3');
-    
     _loadApiKey();
   }
 
@@ -135,12 +308,17 @@ class SpeechService implements ISpeechService {
       if (keyFile.existsSync()) {
         final jsonStr = keyFile.readAsStringSync();
         final doc = jsonDecode(jsonStr);
-        if (doc is Map && doc.containsKey('OpenAI')) {
-          _apiKey = doc['OpenAI']['ApiKey']?.toString();
+        if (doc is Map) {
+          if (doc.containsKey('OpenAI')) {
+            _openaiApiKey = doc['OpenAI']['ApiKey']?.toString();
+          }
+          if (doc.containsKey('GoogleAI')) {
+            _googleAiApiKey = doc['GoogleAI']['ApiKey']?.toString();
+          }
         }
       }
     } catch (e) {
-      debugPrint("Error loading OpenAI Key for TTS: $e");
+      debugPrint("Error loading API keys for TTS: $e");
     }
   }
 
@@ -190,46 +368,26 @@ class SpeechService implements ISpeechService {
   Future<void> speakAsync(String text) async {
     if (_isMuted) return;
     
-    // Load API key before speaking to ensure we use the latest downloaded key
     _loadApiKey();
 
-    if (text.trim().isEmpty || _apiKey == null || _apiKey!.isEmpty) {
-      debugPrint("TTS skipped: Text is empty or API Key is missing.");
+    if (text.trim().isEmpty) {
+      debugPrint("TTS skipped: Text is empty.");
       return;
     }
 
     stop(); // Silently stop any active playback
 
     try {
-      final requestBody = {
-        "model": "tts-1",
-        "input": text,
-        "voice": _selectedVoiceName
-      };
-
-      final response = await _httpClient.post(
-        Uri.parse("https://api.openai.com/v1/audio/speech"),
-        headers: {
-          "Authorization": "Bearer $_apiKey",
-          "Content-Type": "application/json",
-          },
-        body: jsonEncode(requestBody),
-      );
-
-      if (response.statusCode != 200) {
-        debugPrint("OpenAI API Error for TTS (${response.statusCode}): ${response.body}");
+      final tempPath = await synthesizeToFileAsync(text, _selectedVoiceName);
+      if (tempPath == null || tempPath.isEmpty) {
+        debugPrint("[SpeechService] Failed to synthesize speech.");
         return;
       }
 
-      final audioBytes = response.bodyBytes;
-      if (audioBytes.isEmpty) return;
-      
-      final mp3File = File(_tempMp3Path);
-      await mp3File.writeAsBytes(audioBytes);
-      debugPrint("TTS MP3 saved to: $_tempMp3Path");
+      debugPrint("TTS audio saved to: $tempPath");
 
       // Play using just_audio player
-      await _audioPlayer.setFilePath(_tempMp3Path);
+      await _audioPlayer.setFilePath(tempPath);
       
       // Delay play by a brief 200ms to ensure device channel is ready
       await Future.delayed(const Duration(milliseconds: 200));
@@ -244,7 +402,7 @@ class SpeechService implements ISpeechService {
       }
       sendAnimationFace("SILIENCE");
     } catch (e) {
-      debugPrint("OpenAI TTS Error: $e");
+      debugPrint("TTS Playback Error: $e");
       sendAnimationFace("SILIENCE");
     }
   }

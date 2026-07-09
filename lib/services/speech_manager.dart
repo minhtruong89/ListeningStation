@@ -6,7 +6,7 @@ class SpeechManager implements ISpeechService {
   final LocalSpeechService _localSpeechService;
   
   @override
-  bool flagLocalTTS = true;
+  bool flagLocalTTS = false;
 
   SpeechManager({
     SpeechService? openaiSpeechService,
@@ -35,6 +35,14 @@ class SpeechManager implements ISpeechService {
     } else {
       _openaiSpeechService.selectedVoiceName = name;
     }
+  }
+
+  @override
+  String get onlineTtsProvider => _openaiSpeechService.onlineTtsProvider;
+
+  @override
+  set onlineTtsProvider(String provider) {
+    _openaiSpeechService.onlineTtsProvider = provider;
   }
 
   @override

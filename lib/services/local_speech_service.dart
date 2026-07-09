@@ -41,6 +41,12 @@ class LocalSpeechService implements ISpeechService {
   set flagLocalTTS(bool value) {}
 
   @override
+  String get onlineTtsProvider => "GoogleAI";
+
+  @override
+  set onlineTtsProvider(String provider) {}
+
+  @override
   void setUartDevice(int vendorId, int productId) {
     SpeechService.uartVid = vendorId;
     SpeechService.uartPid = productId;

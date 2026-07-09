@@ -47,6 +47,8 @@ class ConversationViewModel extends ChangeNotifier {
 
   List<String> get availableVoices => _availableVoices;
   String get selectedVoice => _selectedVoice;
+  String get onlineTtsProvider => _speechService.onlineTtsProvider;
+  bool get isLocalTTS => _speechService.flagLocalTTS;
 
   Future<void> loadVoicesAsync() async {
     try {
@@ -68,6 +70,12 @@ class ConversationViewModel extends ChangeNotifier {
     _selectedVoice = newVoice;
     _speechService.selectedVoiceName = newVoice;
     notifyListeners();
+  }
+
+  void changeOnlineProvider(String provider) {
+    _speechService.onlineTtsProvider = provider;
+    // Reload voices for the new provider
+    loadVoicesAsync();
   }
 
   Future<void> applyVoiceAndSpeakAsync(BuildContext context) async {

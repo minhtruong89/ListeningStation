@@ -14,6 +14,8 @@ abstract class ISpeechService {
   set isMuted(bool value);
   bool get flagLocalTTS;
   set flagLocalTTS(bool value);
+  bool get flagLocalTTS_checkSwitch;
+  set flagLocalTTS_checkSwitch(bool value);
   void setUartDevice(int vendorId, int productId);
   Future<List<String>> getVietnameseVoices();
   String get selectedVoiceName;
@@ -76,6 +78,12 @@ class SpeechService implements ISpeechService {
 
   @override
   set flagLocalTTS(bool value) {}
+
+  @override
+  bool get flagLocalTTS_checkSwitch => false;
+
+  @override
+  set flagLocalTTS_checkSwitch(bool value) {}
 
   @override
   String get selectedVoiceName => _selectedVoiceName;
@@ -242,16 +250,6 @@ class SpeechService implements ISpeechService {
       return int.tryParse(match.group(1) ?? '') ?? defaultChannels;
     }
     return defaultChannels;
-  }
-
-  /// Swaps byte order of 16-bit samples (big-endian L16 -> little-endian PCM for WAV).
-  Uint8List _swapByteOrder(Uint8List bytes) {
-    final result = Uint8List(bytes.length);
-    for (int i = 0; i < bytes.length - 1; i += 2) {
-      result[i]     = bytes[i + 1];
-      result[i + 1] = bytes[i];
-    }
-    return result;
   }
 
   /// Wraps raw 16-bit mono PCM bytes into a valid WAV file with RIFF header.

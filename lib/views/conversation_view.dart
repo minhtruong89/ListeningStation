@@ -139,8 +139,13 @@ class _ConversationViewState extends State<ConversationView> {
 
 
   void _showDashboardAndResetTimer() {
-
     if (!mounted) return;
+    
+    // Do not show dashboard or steal focus if a popup is active
+    final vm = context.read<ConversationViewModel>();
+    if (vm.isVoiceInputActive || vm.isSummaryVisible || vm.isFinalizeVisible) {
+      return;
+    }
 
     if (!_isDashboardVisible) {
 
@@ -1453,7 +1458,7 @@ class _ConversationViewState extends State<ConversationView> {
                       children: [
 
                         // When using Local TTS (Google TTS / RHVoice): show voice combobox
-                        if (vm.isLocalTTS) ...[
+                        if (vm.showLocalVoiceOptions) ...[
                           // Dropdown/Combobox of Available Vietnamese Voices
 
                         Container(
@@ -1568,35 +1573,23 @@ class _ConversationViewState extends State<ConversationView> {
                           SizedBox(width: 12.0 * scale),
                         ], // end if (!vm.isLocalTTS)
                         // "Chuyển giọng" button
-
-
-                        ElevatedButton.icon(
-
-                          onPressed: () => vm.applyVoiceAndSpeakAsync(context),
-
-                          icon: Icon(Icons.record_voice_over, size: 18.0 * scale),
-
-                          label: Text(
-
-                            "CHUYỂN GIỌNG",
-
-                            style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
-
+                        if (vm.showLocalVoiceOptions) ...[
+                          ElevatedButton.icon(
+                            onPressed: () => vm.applyVoiceAndSpeakAsync(context),
+                            icon: Icon(Icons.record_voice_over, size: 18.0 * scale),
+                            label: Text(
+                              "CHUYỂN GIỌNG",
+                              style: TextStyle(fontSize: 13.0 * scale, fontWeight: FontWeight.bold),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppStyles.primaryAccent,
+                              foregroundColor: AppStyles.backgroundEnd,
+                              padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 14.0 * scale),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
+                            ),
                           ),
-
-                          style: ElevatedButton.styleFrom(
-
-                            backgroundColor: AppStyles.primaryAccent,
-
-                            foregroundColor: AppStyles.backgroundEnd,
-
-                            padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 14.0 * scale),
-
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
-
-                          ),
-
-                        ),
+                          SizedBox(width: 12.0 * scale),
+                        ],
 
                         SizedBox(width: 12.0 * scale),
 
@@ -2389,13 +2382,12 @@ class _ConversationViewState extends State<ConversationView> {
                     isCancelFocused: _isVoiceCancelFocused,
 
                     onConfirm: (text) {
-
-                      _chatInputController.text = text;
-
                       vm.cancelVoiceInput();
-
-                      // Focus moves to Send button (handled by _prevIsVoiceActive logic)
-
+                      if (text.trim().isNotEmpty) {
+                        vm.userInput = text;
+                        vm.sendMessageAsync();
+                        _chatInputController.clear();
+                      }
                     },
 
                     onRetry: () => vm.retryVoiceInputAsync(),

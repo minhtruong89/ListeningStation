@@ -6,7 +6,9 @@ class SpeechManager implements ISpeechService {
   final LocalSpeechService _localSpeechService;
   
   @override
-  bool flagLocalTTS = false;
+  bool flagLocalTTS = true;
+  @override
+  bool flagLocalTTS_checkSwitch = false;
 
   SpeechManager({
     SpeechService? openaiSpeechService,

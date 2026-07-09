@@ -41,6 +41,12 @@ class LocalSpeechService implements ISpeechService {
   set flagLocalTTS(bool value) {}
 
   @override
+  bool get flagLocalTTS_checkSwitch => true;
+
+  @override
+  set flagLocalTTS_checkSwitch(bool value) {}
+
+  @override
   String get onlineTtsProvider => "GoogleAI";
 
   @override

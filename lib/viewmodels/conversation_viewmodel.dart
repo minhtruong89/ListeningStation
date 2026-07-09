@@ -49,6 +49,7 @@ class ConversationViewModel extends ChangeNotifier {
   String get selectedVoice => _selectedVoice;
   String get onlineTtsProvider => _speechService.onlineTtsProvider;
   bool get isLocalTTS => _speechService.flagLocalTTS;
+  bool get showLocalVoiceOptions => _speechService.flagLocalTTS && _speechService.flagLocalTTS_checkSwitch;
 
   Future<void> loadVoicesAsync() async {
     try {
@@ -164,8 +165,11 @@ class ConversationViewModel extends ChangeNotifier {
     _isProcessing = false;
     notifyListeners();
 
-    // Play TTS in background so user doesn't wait
-    _speechService.speakAsync(aiResponse);
+    // Play TTS and wait for it to finish
+    await _speechService.speakAsync(aiResponse);
+    
+    // Auto-open voice input popup after TTS finishes
+    startVoiceInputAsync();
   }
 
   Future<void> showFinalizeAsync() async {

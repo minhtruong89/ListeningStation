@@ -1,6 +1,7 @@
 {
 	"operatorList": [
         { "name": "TRƯƠNG HOÀNG MINH", "id": "079089017448", "hospital_id": "BV001", "staffType": "all" },
+		{ "name": "LÊ VĂN CHÍNH", "id": "046061000150", "hospital_id": "BV001", "staffType": "all" },
 		{ "name": "NGUYỄN TRỌNG TÀI", "id": "051094009757", "hospital_id": "BV001", "staffType": "all" }
       ],
 	

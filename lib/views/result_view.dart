@@ -82,19 +82,15 @@ class _ResultViewState extends State<ResultView> {
               children: [
                 // Top Header Panel
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.assessment, color: AppStyles.primaryAccent, size: 28.0 * scale),
-                        SizedBox(width: 12.0 * scale),
-                        Text(
-                          "KẾT QUẢ PHÂN TÍCH CA HỖ TRỢ",
-                          style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
-                        ),
-                      ],
+                    Icon(Icons.assessment, color: AppStyles.primaryAccent, size: 28.0 * scale),
+                    SizedBox(width: 12.0 * scale),
+                    Text(
+                      "KẾT QUẢ CA HỖ TRỢ",
+                      style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
                     ),
-                    if (resultVm.isResultReady)
+                    if (resultVm.isResultReady) ...[
+                      SizedBox(width: 16.0 * scale),
                       AnimatedScale(
                         scale: _isTopRestartFocused ? 1.05 : 1.0,
                         duration: const Duration(milliseconds: 200),
@@ -142,7 +138,8 @@ class _ResultViewState extends State<ResultView> {
                             ),
                           ),
                         ),
-                      )
+                      ),
+                    ],
                   ],
                 ),
                 SizedBox(height: 20.0 * scale),

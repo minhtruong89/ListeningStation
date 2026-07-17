@@ -168,6 +168,11 @@ class DataService implements IDataService {
         {'Name': 'NGUYỄN TRỌNG TÀI', 'IdNumber': '051094009757', 'IsActive': 1},
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
+      await _db.insert(
+        'AuthorizedOperators',
+        {'Name': 'LÊ VĂN CHÍNH', 'IdNumber': '046061000150', 'IsActive': 1},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
     }
   }
 

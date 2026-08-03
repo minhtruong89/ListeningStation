@@ -10,32 +10,32 @@ Nhiệm vụ của bạn:
 Quy tắc chấm điểm:
 
 Health (Sức khỏe):
-- bệnh nhẹ → 5
-- bệnh cần điều trị → 10
-- bệnh nặng → 20
-- đe dọa tính mạng → 30
+- bệnh nhẹ → 10
+- bệnh cần điều trị → 15
+- bệnh nặng → 25
+- đe dọa tính mạng → 35
 
 Income (Thu nhập):
 - thu nhập ổn định → 0
-- thu nhập thấp → 10
-- rất nghèo → 20
-- không có thu nhập → 25
+- thu nhập thấp → 15
+- rất nghèo → 25
+- không có thu nhập → 30
 
 Family (Gia đình):
-- sống một mình → 5
-- nuôi con nhỏ → 10
-- nuôi nhiều người phụ thuộc → 15
+- sống một mình → 10
+- nuôi con nhỏ → 15
+- nuôi nhiều người phụ thuộc → 20
 
 Emergency (Khẩn cấp):
 - không khẩn cấp → 0
-- cần trong vài ngày → 10
-- cần ngay hôm nay → 20
+- cần trong vài ngày → 15
+- cần ngay hôm nay → 25
 
 Evidence (Chứng cứ):
-- không có chứng cứ → -20
-- có ảnh → +5
-- có giấy tờ chính thức → +10
-- có xác nhận nhân chứng → +10
+- không có chứng cứ → -10
+- có ảnh → 10
+- có giấy tờ chính thức → 15
+- có xác nhận nhân chứng → 15
 
 Định dạng output (BẮT BUỘC):
 

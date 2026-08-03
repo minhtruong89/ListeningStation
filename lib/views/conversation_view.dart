@@ -100,10 +100,12 @@ class _ConversationViewState extends State<ConversationView> {
   late final FocusNode _voiceRetryFocusNode;
   late final FocusNode _voiceCancelFocusNode;
   late final FocusNode _voiceFinalizeFocusNode;
+  late final FocusNode _voiceStopFocusNode;
   bool _isVoiceConfirmFocused = false;
   bool _isVoiceRetryFocused = false;
   bool _isVoiceCancelFocused = false;
   bool _isVoiceFinalizeFocused = false;
+  bool _isVoiceStopFocused = false;
 
 
 
@@ -115,11 +117,7 @@ class _ConversationViewState extends State<ConversationView> {
 
   bool _prevIsFinalizeConfirmed = false;
 
-  bool _prevIsVoiceActive = false;
-
-  bool _prevHasVoiceResult = false;
-
-  bool _prevHasVoiceError = false;
+  String _lastVoiceState = "idle";
 
 
 
@@ -504,11 +502,6 @@ class _ConversationViewState extends State<ConversationView> {
 
   KeyEventResult _handleVoiceConfirmKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
-      final vm = context.read<ConversationViewModel>();
-      if (vm.hasVoiceError) {
-        _voiceRetryFocusNode.requestFocus();
-        return KeyEventResult.handled;
-      }
       if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
         _voiceRetryFocusNode.requestFocus();
         return KeyEventResult.handled;
@@ -524,12 +517,16 @@ class _ConversationViewState extends State<ConversationView> {
   KeyEventResult _handleVoiceRetryKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       final vm = context.read<ConversationViewModel>();
+      final bool hasUnclearResult = vm.hasVoiceResult && 
+          (vm.voiceTranscribedText.isEmpty || vm.voiceTranscribedText.contains("không rõ ràng"));
+      final bool isErrorState = vm.hasVoiceError || hasUnclearResult;
+
       if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
         _voiceFinalizeFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        if (vm.hasVoiceError) {
+        if (isErrorState) {
           _voiceCancelFocusNode.requestFocus();
         } else {
           _voiceConfirmFocusNode.requestFocus();
@@ -543,13 +540,17 @@ class _ConversationViewState extends State<ConversationView> {
   KeyEventResult _handleVoiceCancelKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       final vm = context.read<ConversationViewModel>();
+      final bool hasUnclearResult = vm.hasVoiceResult && 
+          (vm.voiceTranscribedText.isEmpty || vm.voiceTranscribedText.contains("không rõ ràng"));
+      final bool isErrorState = vm.hasVoiceError || hasUnclearResult;
+
       if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        if (vm.hasVoiceError) {
+        if (vm.isVoiceRecording) {
+          _voiceStopFocusNode.requestFocus();
+        } else if (isErrorState) {
           _voiceRetryFocusNode.requestFocus();
-        } else if (vm.hasVoiceResult) {
-          _voiceConfirmFocusNode.requestFocus();
         } else {
-          _voiceFinalizeFocusNode.requestFocus();
+          _voiceConfirmFocusNode.requestFocus();
         }
         return KeyEventResult.handled;
       }
@@ -569,11 +570,25 @@ class _ConversationViewState extends State<ConversationView> {
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        if (vm.hasVoiceError || vm.hasVoiceResult) {
-          _voiceRetryFocusNode.requestFocus();
+        if (vm.isVoiceRecording) {
+          _voiceStopFocusNode.requestFocus();
         } else {
-          _voiceCancelFocusNode.requestFocus();
+          _voiceRetryFocusNode.requestFocus();
         }
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleVoiceStopKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _voiceFinalizeFocusNode.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _voiceCancelFocusNode.requestFocus();
         return KeyEventResult.handled;
       }
     }
@@ -645,21 +660,15 @@ class _ConversationViewState extends State<ConversationView> {
 
 
     _closeSummaryButtonFocusNode = FocusNode();
-
     _cancelFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleCancelFinalizeKeyEvent);
-
     _confirmFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleConfirmFinalizeKeyEvent);
-
     _goToResultButtonFocusNode = FocusNode();
-
-
 
     _voiceConfirmFocusNode = FocusNode(onKeyEvent: _handleVoiceConfirmKeyEvent);
     _voiceRetryFocusNode = FocusNode(onKeyEvent: _handleVoiceRetryKeyEvent);
     _voiceCancelFocusNode = FocusNode(onKeyEvent: _handleVoiceCancelKeyEvent);
     _voiceFinalizeFocusNode = FocusNode(onKeyEvent: _handleVoiceFinalizeKeyEvent);
-
-
+    _voiceStopFocusNode = FocusNode(onKeyEvent: _handleVoiceStopKeyEvent);
 
     _inputFocusNode.addListener(() {
 
@@ -737,6 +746,9 @@ class _ConversationViewState extends State<ConversationView> {
     _voiceFinalizeFocusNode.addListener(() {
       if (mounted) setState(() => _isVoiceFinalizeFocused = _voiceFinalizeFocusNode.hasFocus);
     });
+    _voiceStopFocusNode.addListener(() {
+      if (mounted) setState(() => _isVoiceStopFocused = _voiceStopFocusNode.hasFocus);
+    });
 
 
 
@@ -796,6 +808,7 @@ class _ConversationViewState extends State<ConversationView> {
     _voiceRetryFocusNode.dispose();
     _voiceCancelFocusNode.dispose();
     _voiceFinalizeFocusNode.dispose();
+    _voiceStopFocusNode.dispose();
 
     super.dispose();
 
@@ -987,119 +1000,65 @@ class _ConversationViewState extends State<ConversationView> {
 
 
 
-    if (vm.isVoiceInputActive && !_prevIsVoiceActive) {
-
-      _prevIsVoiceActive = true;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-
-        if (mounted) {
-
-          if (vm.hasVoiceError) {
-
-            _voiceRetryFocusNode.requestFocus();
-
-          } else if (vm.hasVoiceResult) {
-
-            _voiceConfirmFocusNode.requestFocus();
-
-          } else {
-
-            // If active but no result/error yet (i.e. recording), default to cancel/retry to be safe
-
-            _voiceCancelFocusNode.requestFocus();
-
-          }
-
-        }
-
-      });
-
-    } else if (!vm.isVoiceInputActive && _prevIsVoiceActive) {
-
-      _prevIsVoiceActive = false;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-
-        if (mounted) _sendButtonFocusNode.requestFocus(); // return focus to Send/Input button
-
-      });
-
-    }
-
-
-
-    // Dynamic focus redirection when error or result appears asynchronously
-
+    String currentVoiceState = "idle";
     if (vm.isVoiceInputActive) {
+      final bool hasUnclearResult = vm.hasVoiceResult && 
+          (vm.voiceTranscribedText.isEmpty || vm.voiceTranscribedText.contains("không rõ ràng"));
+      final bool isError = vm.hasVoiceError || hasUnclearResult;
+      final bool isResult = vm.hasVoiceResult && !hasUnclearResult;
 
-      final bool hasResultWithText = vm.hasVoiceResult && vm.voiceTranscribedText.isNotEmpty;
-
-      final bool hasUnclearResult = vm.hasVoiceResult && vm.voiceTranscribedText.isEmpty;
-
-      final bool currentHasResult = vm.hasVoiceResult;
-
-      final bool currentHasError = vm.hasVoiceError || hasUnclearResult;
-
-
-
-      // 1. Detect transitioning to ERROR state
-
-      if (currentHasError && !_prevHasVoiceError) {
-
-        _prevHasVoiceError = true;
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-
-          Future.delayed(const Duration(milliseconds: 50), () {
-
-            if (mounted && vm.isVoiceInputActive) _voiceRetryFocusNode.requestFocus();
-
-          });
-
-        });
-
+      if (vm.isVoiceRecording) {
+        currentVoiceState = "recording";
+      } else if (vm.isVoiceTranscribing) {
+        currentVoiceState = "transcribing";
+      } else if (isError) {
+        currentVoiceState = "error";
+      } else if (isResult) {
+        currentVoiceState = "result";
       }
-
-      // 2. Detect transitioning to SUCCESS state
-
-      else if (hasResultWithText && !_prevHasVoiceResult) {
-
-        _prevHasVoiceResult = true;
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-
-          Future.delayed(const Duration(milliseconds: 50), () {
-
-            if (mounted && vm.isVoiceInputActive) _voiceConfirmFocusNode.requestFocus();
-
-          });
-
-        });
-
-      }
-
-
-
-      // Reset edge triggers when state goes back to active recording/transcribing
-
-      if (!currentHasResult && !currentHasError) {
-
-        _prevHasVoiceResult = false;
-
-        _prevHasVoiceError = false;
-
-      }
-
-    } else {
-
-      // Reset if popup is closed
-
-      _prevHasVoiceResult = false;
-
-      _prevHasVoiceError = false;
-
     }
+
+    if (currentVoiceState != _lastVoiceState) {
+      final String prevState = _lastVoiceState;
+      _lastVoiceState = currentVoiceState;
+
+      // 1. Unfocus all nodes first to completely clear any previous active focus
+      _voiceConfirmFocusNode.unfocus();
+      _voiceRetryFocusNode.unfocus();
+      _voiceCancelFocusNode.unfocus();
+      _voiceFinalizeFocusNode.unfocus();
+      _voiceStopFocusNode.unfocus();
+
+      // 2. Reset all focus state variables to false to clean up all borders
+      setState(() {
+        _isVoiceConfirmFocused = false;
+        _isVoiceRetryFocused = false;
+        _isVoiceCancelFocused = false;
+        _isVoiceFinalizeFocused = false;
+        _isVoiceStopFocused = false;
+      });
+
+      // 3. Post-frame request focus on the correct node for the new state
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        if (currentVoiceState == "recording") {
+          // Khi "Đang lắng nghe", focus vào nút Hoàn tất nói
+          _voiceStopFocusNode.requestFocus();
+        } else if (currentVoiceState == "error") {
+          // Khi "Không nhận diện được giọng nói", focus vào nút Thử lại
+          _voiceRetryFocusNode.requestFocus();
+        } else if (currentVoiceState == "result") {
+          // Khi "Có kết quả nhận diện", focus vào nút Xác nhận nhập
+          _voiceConfirmFocusNode.requestFocus();
+        } else if (currentVoiceState == "idle" && prevState != "idle") {
+          // Return focus to Send/Input button when popup is closed
+          _sendButtonFocusNode.requestFocus();
+        }
+      });
+    }
+
+
 
 
 
@@ -2306,22 +2265,24 @@ class _ConversationViewState extends State<ConversationView> {
                   autofocus: true,
 
                   child: VoiceInputDialog(
-                    status: vm.hasVoiceResult && vm.voiceTranscribedText.isEmpty 
+                    status: vm.hasVoiceResult && (vm.voiceTranscribedText.isEmpty || vm.voiceTranscribedText.contains("không rõ ràng"))
                         ? "Không nhận diện được giọng nói." 
                         : vm.voiceInputStatus,
                     isRecording: vm.isVoiceRecording,
                     isTranscribing: vm.isVoiceTranscribing,
-                    hasResult: vm.hasVoiceResult && vm.voiceTranscribedText.isNotEmpty,
-                    hasError: vm.hasVoiceError || (vm.hasVoiceResult && vm.voiceTranscribedText.isEmpty),
+                    hasResult: vm.hasVoiceResult && vm.voiceTranscribedText.isNotEmpty && !vm.voiceTranscribedText.contains("không rõ ràng"),
+                    hasError: vm.hasVoiceError || ((!vm.isVoiceRecording && !vm.isVoiceTranscribing) && (vm.voiceTranscribedText.isEmpty || vm.voiceTranscribedText.contains("không rõ ràng"))),
                     transcribedText: vm.voiceTranscribedText,
                     confirmFocusNode: _voiceConfirmFocusNode,
                     retryFocusNode: _voiceRetryFocusNode,
                     cancelFocusNode: _voiceCancelFocusNode,
                     finalizeFocusNode: _voiceFinalizeFocusNode,
+                    stopRecordingFocusNode: _voiceStopFocusNode,
                     isConfirmFocused: _isVoiceConfirmFocused,
                     isRetryFocused: _isVoiceRetryFocused,
                     isCancelFocused: _isVoiceCancelFocused,
                     isFinalizeFocused: _isVoiceFinalizeFocused,
+                    isStopRecordingFocused: _isVoiceStopFocused,
                     onConfirm: (text) {
                       vm.cancelVoiceInput();
                       if (text.trim().isNotEmpty) {
@@ -2332,6 +2293,7 @@ class _ConversationViewState extends State<ConversationView> {
                     },
                     onRetry: () => vm.retryVoiceInputAsync(),
                     onCancel: () => vm.cancelVoiceInput(),
+                    onStopRecording: () => vm.stopVoiceRecordingAsync(),
                     onFinalize: () {
                       vm.cancelVoiceInput();
                       vm.showFinalizeAsync();
@@ -2371,13 +2333,16 @@ class VoiceInputDialog extends StatefulWidget {
   final FocusNode retryFocusNode;
   final FocusNode cancelFocusNode;
   final FocusNode finalizeFocusNode;
+  final FocusNode stopRecordingFocusNode;
   final bool isConfirmFocused;
   final bool isRetryFocused;
   final bool isCancelFocused;
   final bool isFinalizeFocused;
+  final bool isStopRecordingFocused;
   final void Function(String text) onConfirm;
   final VoidCallback onRetry;
   final VoidCallback onCancel;
+  final VoidCallback onStopRecording;
   final VoidCallback onFinalize;
 
   const VoiceInputDialog({
@@ -2392,13 +2357,16 @@ class VoiceInputDialog extends StatefulWidget {
     required this.retryFocusNode,
     required this.cancelFocusNode,
     required this.finalizeFocusNode,
+    required this.stopRecordingFocusNode,
     required this.isConfirmFocused,
     required this.isRetryFocused,
     required this.isCancelFocused,
     required this.isFinalizeFocused,
+    required this.isStopRecordingFocused,
     required this.onConfirm,
     required this.onRetry,
     required this.onCancel,
+    required this.onStopRecording,
     required this.onFinalize,
   });
 
@@ -2948,11 +2916,33 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> with SingleTickerPr
                   ],
                 ),
               ] else ...[
-                // Recording / transcribing state: show cancel button
+                // Recording / transcribing state: show cancel button (and manual stop button if recording)
                 SizedBox(height: 12.0 * scale),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    if (widget.isRecording) ...[
+                      SizedBox(
+                        height: 44.0 * scale,
+                        child: ElevatedButton.icon(
+                          focusNode: widget.stopRecordingFocusNode,
+                          onPressed: widget.onStopRecording,
+                          icon: Icon(Icons.stop, size: 16.0 * scale),
+                          label: Text(
+                            "HOÀN TẤT NÓI",
+                            style: TextStyle(fontSize: 12.0 * scale, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: widget.isStopRecordingFocused ? AppStyles.successColor : AppStyles.successColor.withValues(alpha: 0.7),
+                            foregroundColor: AppStyles.backgroundEnd,
+                            side: widget.isStopRecordingFocused ? BorderSide(color: Colors.white, width: 2.5 * scale) : null,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                            elevation: widget.isStopRecordingFocused ? 10.0 : 0.0,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12.0 * scale),
+                    ],
                     SizedBox(
                       height: 44.0 * scale,
                       child: OutlinedButton.icon(

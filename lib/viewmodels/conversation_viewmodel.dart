@@ -301,6 +301,9 @@ class ConversationViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  String _recordingPath = "";
+  Timer? _safetyTimer;
+
   // Starts STT recording and keeps the popup open until user confirms or retries.
   // Returns immediately; popup stays visible via isVoiceInputActive flag.
   Future<void> startVoiceInputAsync() async {
@@ -319,13 +322,13 @@ class ConversationViewModel extends ChangeNotifier {
       if (deviceIndex == -1) deviceIndex = 0;
 
       final tempDir = await getTemporaryDirectory();
-      final String path = "${tempDir.path}/voice_input.m4a";
+      _recordingPath = "${tempDir.path}/voice_input.m4a";
       const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
 
-      debugPrint("[Voice Input] INVOKING startRecording on device: $deviceIndex, path: $path");
+      debugPrint("[Voice Input] INVOKING startRecording on device: $deviceIndex, path: $_recordingPath");
 
       final String? startResult = await channel.invokeMethod<String>('startRecording', {
-        'filePath': path,
+        'filePath': _recordingPath,
         'deviceIndex': deviceIndex,
       });
 
@@ -336,42 +339,19 @@ class ConversationViewModel extends ChangeNotifier {
         _voiceInputStatus = "Đang lắng nghe...";
         notifyListeners();
 
-        await Future.delayed(const Duration(seconds: 5));
-
-        debugPrint("[Voice Input] INVOKING stopRecording...");
-        final bool? stopSuccess = await channel.invokeMethod<bool>('stopRecording');
-        debugPrint("[Voice Input] Method 'stopRecording' returned: $stopSuccess");
-
-        if (stopSuccess == true) {
-          _isVoiceRecording = false;
-          _isVoiceTranscribing = true;
-          _voiceInputStatus = "Đang nhận diện...";
-          notifyListeners();
-
-          debugPrint("[Voice Input] INVOKING transcribeAudioAsync with path: $path");
-          final String text = await _llmService.transcribeAudioAsync(path);
-          debugPrint("[Voice Input] Transcription completed. Result length: ${text.length}. Content: '$text'");
-
-          _isVoiceTranscribing = false;
-          _voiceTranscribedText = text.trim();
-          _voiceInputStatus = _voiceTranscribedText.isNotEmpty
-              ? "Kết quả nhận diện:"
-              : "Không nhận diện được giọng nói.";
-          notifyListeners();
-          return;
-        } else {
-          debugPrint("[Voice Input] FAILED to stop recording. stopSuccess was not true.");
-          _voiceInputStatus = "Lỗi dừng file thu âm.";
-        }
+        // Safety timeout to automatically stop recording after 45 seconds if user forgets
+        _safetyTimer?.cancel();
+        _safetyTimer = Timer(const Duration(seconds: 45), () {
+          debugPrint("[Voice Input] Safety timeout reached (45s). Auto-stopping...");
+          stopVoiceRecordingAsync();
+        });
       } else {
         debugPrint("[Voice Input] FAILED to start recording: $startResult");
         _voiceInputStatus = startResult ?? "Không phản hồi từ thiết bị.";
+        _isVoiceRecording = false;
+        _hasVoiceError = true;
+        notifyListeners();
       }
-
-      _isVoiceRecording = false;
-      _hasVoiceError = true;
-      _voiceTranscribedText = "";
-      notifyListeners();
     } catch (e, stack) {
       debugPrint("[Voice Input] EXCEPTION CAUGHT: $e");
       debugPrint("[Voice Input] STACK TRACE: $stack");
@@ -380,6 +360,50 @@ class ConversationViewModel extends ChangeNotifier {
       _voiceTranscribedText = "";
       _isVoiceRecording = false;
       _isVoiceTranscribing = false;
+      notifyListeners();
+    }
+  }
+
+  // Manually stops recording and triggers transcription
+  Future<void> stopVoiceRecordingAsync() async {
+    _safetyTimer?.cancel();
+    if (!_isVoiceRecording) return;
+
+    _isVoiceRecording = false;
+    _isVoiceTranscribing = true;
+    _voiceInputStatus = "Đang nhận diện...";
+    notifyListeners();
+
+    try {
+      const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+      debugPrint("[Voice Input] INVOKING stopRecording...");
+      final bool? stopSuccess = await channel.invokeMethod<bool>('stopRecording');
+      debugPrint("[Voice Input] Method 'stopRecording' returned: $stopSuccess");
+
+      if (stopSuccess == true) {
+        debugPrint("[Voice Input] INVOKING transcribeAudioAsync with path: $_recordingPath");
+        final String text = await _llmService.transcribeAudioAsync(_recordingPath);
+        debugPrint("[Voice Input] Transcription completed. Result length: ${text.length}. Content: '$text'");
+
+        _isVoiceTranscribing = false;
+        _voiceTranscribedText = text.trim();
+        _voiceInputStatus = _voiceTranscribedText.isNotEmpty
+            ? "Kết quả nhận diện:"
+            : "Không nhận diện được giọng nói.";
+        notifyListeners();
+      } else {
+        debugPrint("[Voice Input] FAILED to stop recording. stopSuccess was not true.");
+        _voiceInputStatus = "Lỗi dừng file thu âm.";
+        _isVoiceTranscribing = false;
+        _hasVoiceError = true;
+        notifyListeners();
+      }
+    } catch (e, stack) {
+      debugPrint("[Voice Input] stopVoiceRecordingAsync EXCEPTION CAUGHT: $e");
+      debugPrint("[Voice Input] STACK TRACE: $stack");
+      _isVoiceTranscribing = false;
+      _hasVoiceError = true;
+      _voiceInputStatus = "Lỗi nhận diện: $e";
       notifyListeners();
     }
   }
@@ -393,6 +417,14 @@ class ConversationViewModel extends ChangeNotifier {
 
   // Called when user dismisses or confirms voice popup without accepting
   void cancelVoiceInput() {
+    _safetyTimer?.cancel();
+    if (_isVoiceRecording) {
+      const channel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+      channel.invokeMethod<bool>('stopRecording').catchError((e) {
+        debugPrint("[Voice Input] Error stopping recording on cancel: $e");
+        return false;
+      });
+    }
     _isVoiceInputActive = false;
     _isVoiceRecording = false;
     _isVoiceTranscribing = false;

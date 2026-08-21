@@ -253,5 +253,20 @@
         "Answer": "Không"
       }
     ]
+  },
+  "Phase9": {
+    "phaseName": "Kết thúc",
+    "questions": [
+      {
+        "titleQuestion": "Xác nhận",
+        "Question": "Con ghi nhận như vậy có đúng không?",
+        "Answer": "Có"
+      },
+      {
+        "titleQuestion": "Kết thúc",
+        "Question": "Đồng ý",
+        "Answer": "Con sẽ gửi hồ sơ này về Quỹ Bông Sen để xem xét"
+      }
+    ]
   }
 }

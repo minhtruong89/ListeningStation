@@ -6,11 +6,17 @@ import '../models/conversation.dart';
 import '../services/llm_service.dart';
 import '../services/speech_service.dart';
 import '../services/rule_engine_service.dart';
+import '../services/log_service.dart';
+import '../vapi/vapi_service.dart';
+import '../vapi/vapi_models.dart';
 
 class ConversationViewModel extends ChangeNotifier {
   final ILLMService _llmService;
   final ISpeechService _speechService;
   final IRuleEngineService _ruleEngine;
+  final VapiService _vapiService = VapiService();
+
+  bool flagVAPI = true; // Flag toggle VAPI integration (Default true as requested)
 
   String _userInput = "";
   bool _isProcessing = false;
@@ -35,14 +41,151 @@ class ConversationViewModel extends ChangeNotifier {
   List<String> _availableVoices = [];
   String _selectedVoice = "";
 
+  StreamSubscription? _vapiTranscriptSub;
+  StreamSubscription? _vapiStateSub;
+
   ConversationViewModel(this._llmService, this._speechService, this._ruleEngine) {
     _isMuted = _speechService.isMuted;
     
     // Load voices
     loadVoicesAsync();
     
-    // Auto-start conversation
-    sendMessageAsync(hiddenInput: "Xin chào");
+    debugPrint("[ConversationVM] Initializing ConversationViewModel. flagVAPI=$flagVAPI");
+    if (flagVAPI) {
+      _initVapi();
+    } else {
+      // Auto-start normal conversation
+      sendMessageAsync(hiddenInput: "Xin chào");
+    }
+  }
+
+  Timer? _vapiTranscriptDebounce;
+  String _pendingSpeaker = "";
+  String _pendingText = "";
+
+  void _initVapi() {
+    debugPrint("[ConversationVM] Setting up Vapi listeners & starting call...");
+    _vapiTranscriptSub?.cancel();
+    _vapiStateSub?.cancel();
+    _vapiTranscriptSub = _vapiService.onTranscriptUpdated.listen((vapiMessages) {
+      if (!flagVAPI || vapiMessages.isEmpty) return;
+
+      // Nếu là danh sách hội thoại hoàn chỉnh từ ConversationUpdate
+      if (vapiMessages.length > 1) {
+        _messages.clear();
+        for (var vm in vapiMessages) {
+          if (vm.text.trim().isNotEmpty) {
+            _messages.add(ConversationMessage(
+              sender: vm.speaker,
+              content: vm.text.trim(),
+              timestamp: DateTime.now(),
+            ));
+          }
+        }
+        notifyListeners();
+        return;
+      }
+
+      // Xử lý từng mẩu tin Transcript thời gian thực (tức thời 0ms)
+      for (var vm in vapiMessages) {
+        final newText = vm.text.trim();
+        if (newText.isEmpty) continue;
+
+        // Điều khiển animation khuôn mặt Robot: SAY khi Trạm Lắng Nghe nói, SILIENCE khi người dùng nói
+        if (vm.speaker == 'Trạm Lắng Nghe') {
+          SpeechService.sendAnimationFace("SAY");
+        } else {
+          SpeechService.sendAnimationFace("SILIENCE");
+        }
+
+        if (_messages.isNotEmpty && _messages.last.sender == vm.speaker) {
+          final lastText = _messages.last.content.trim();
+          
+          // Kiểm tra xem có phải là cùng 1 câu đang phát (cùng mở đầu hoặc câu mới chứa câu cũ)
+          final isSameStream = newText.contains(lastText) || 
+              lastText.contains(newText) ||
+              newText.startsWith(lastText.substring(0, (lastText.length * 0.4).toInt())) ||
+              (vm.speaker == 'Trạm Lắng Nghe' && !lastText.endsWith('?') && !lastText.endsWith('.') && !lastText.endsWith('!'));
+
+          if (isSameStream) {
+            // Cập nhật câu dài hơn và đầy đủ hơn vào bong bóng hiện tại
+            _messages[_messages.length - 1] = ConversationMessage(
+              sender: vm.speaker,
+              content: newText.length >= lastText.length ? newText : lastText,
+              timestamp: DateTime.now(),
+            );
+          } else {
+            // Câu hoàn toàn mới độc lập
+            _messages.add(ConversationMessage(
+              sender: vm.speaker,
+              content: newText,
+              timestamp: DateTime.now(),
+            ));
+          }
+        } else {
+          // Người khác bắt đầu nói -> thêm ngay bong bóng mới
+          _messages.add(ConversationMessage(
+            sender: vm.speaker,
+            content: newText,
+            timestamp: DateTime.now(),
+          ));
+        }
+        // Tự động kích hoạt nút "Kết thúc hội thoại" (Finalize) khi AI nói câu kết thúc
+        if (vm.speaker == 'Trạm Lắng Nghe' &&
+            newText.contains("Con sẽ gửi hồ sơ này về Quỹ Bông Sen để xem xét") &&
+            !_isFinalizeVisible &&
+            !_isFinalizeConfirmed) {
+          LogService.log("[ConversationVM] Detected completion phrase -> Auto triggering showFinalizeAsync");
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!_isFinalizeVisible && !_isFinalizeConfirmed) {
+              SpeechService.sendAnimationFace("SILIENCE");
+              showFinalizeAsync();
+            }
+          });
+        }
+      }
+      notifyListeners();
+    });
+
+    _vapiStateSub = _vapiService.onCallStateChanged.listen((state) {
+      if (!flagVAPI) return;
+      LogService.log("[ConversationVM] OnCallStateChanged fired: $state");
+      if (state == VapiCallState.connecting) {
+        _isProcessing = true;
+      } else if (state == VapiCallState.active) {
+        _isProcessing = false;
+      } else if (state == VapiCallState.ended || state == VapiCallState.error) {
+        _isProcessing = false;
+        SpeechService.sendAnimationFace("SILIENCE");
+      }
+      notifyListeners();
+    });
+
+    _vapiService.startCall(assistantId: "741b69b0-d1ec-48cc-ac4b-8c4546c3cf79");
+  }
+
+  void toggleVapiFlag(bool value) {
+    flagVAPI = value;
+    debugPrint("[ConversationVM] Toggled flagVAPI -> $flagVAPI");
+    if (flagVAPI) {
+      _speechService.stop();
+      _initVapi();
+    } else {
+      _vapiTranscriptDebounce?.cancel();
+      _vapiService.stopCall();
+      _vapiTranscriptSub?.cancel();
+      _vapiStateSub?.cancel();
+    }
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _vapiTranscriptDebounce?.cancel();
+    _vapiTranscriptSub?.cancel();
+    _vapiStateSub?.cancel();
+    _vapiService.dispose();
+    super.dispose();
   }
 
   List<String> get availableVoices => _availableVoices;
@@ -276,6 +419,12 @@ class ConversationViewModel extends ChangeNotifier {
   Future<void> runDemoModeAsync() async {
     _currentRequestToken++; // Cancel any pending/running API requests from calling speakAsync
     _speechService.stop(); // Immediate silence
+
+    // Ngắt cuộc gọi Vapi ngay lập tức
+    _vapiTranscriptSub?.cancel();
+    _vapiStateSub?.cancel();
+    await _vapiService.stopCall();
+
     _isProcessing = true;
     _messages.clear();
     notifyListeners();
@@ -299,6 +448,13 @@ class ConversationViewModel extends ChangeNotifier {
     _isFinalizeConfirmed = false;
     _isSummaryVisible = false;
     notifyListeners();
+
+    // Dừng cuộc gọi Vapi khi dọn dẹp hội thoại, không tự động gọi lại ở đây để tránh phát tiếng ngoài màn hình
+    if (flagVAPI) {
+      _vapiService.stopCall();
+      _vapiTranscriptSub?.cancel();
+      _vapiStateSub?.cancel();
+    }
   }
 
   String _recordingPath = "";

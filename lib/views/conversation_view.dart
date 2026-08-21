@@ -122,10 +122,8 @@ class _ConversationViewState extends State<ConversationView> {
 
 
   // Optimize scrolling triggers on weak Android Box hardware
-
   int _lastMessageCount = 0;
-
-
+  String _lastMessageText = "";
 
   bool _isDashboardVisible = false;
 
@@ -757,13 +755,23 @@ class _ConversationViewState extends State<ConversationView> {
 
 
     // Register this view's adjacent nodes so Log button can navigate back into the bar
-
     // Loop: ... [Send/Input] → [Log] → [Mute] ...
-
     LogService.prevFocusNode = _sendButtonFocusNode;
-
     LogService.nextFocusNode = _muteButtonFocusNode;
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final vm = context.read<ConversationViewModel>();
+        if (vm.messages.isEmpty) {
+          debugPrint("[ConversationView] Re-entering empty conversation -> Re-starting call/chat");
+          if (vm.flagVAPI) {
+            vm.toggleVapiFlag(true);
+          } else {
+            vm.sendMessageAsync(hiddenInput: "Xin chào");
+          }
+        }
+      }
+    });
   }
 
 
@@ -1062,14 +1070,12 @@ class _ConversationViewState extends State<ConversationView> {
 
 
 
-    // Auto-scroll only when new messages are added to prevent loop-scrolling and stutter on TV Boxes
-
-    if (vm.messages.length > _lastMessageCount) {
-
+    // Auto-scroll when new messages are added OR when streaming text grows longer
+    final currentLastText = vm.messages.isNotEmpty ? vm.messages.last.content : "";
+    if (vm.messages.length != _lastMessageCount || currentLastText != _lastMessageText) {
       _lastMessageCount = vm.messages.length;
-
+      _lastMessageText = currentLastText;
       _scrollToBottom();
-
     }
 
 
@@ -1503,10 +1509,6 @@ class _ConversationViewState extends State<ConversationView> {
                           ),
                           SizedBox(width: 12.0 * scale),
                         ],
-
-                        SizedBox(width: 12.0 * scale),
-
-  
 
                         // Mute Speech button
 

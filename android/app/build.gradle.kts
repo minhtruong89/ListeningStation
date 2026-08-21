@@ -42,3 +42,7 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("ai.vapi.android:vapi:1.0.7")
+}

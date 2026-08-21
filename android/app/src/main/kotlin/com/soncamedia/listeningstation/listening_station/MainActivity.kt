@@ -25,11 +25,17 @@ import io.flutter.plugin.common.MethodChannel
 import android.media.ToneGenerator
 import android.view.WindowManager
 
+import com.soncamedia.listeningstation.listening_station.vapi.VapiNativeBridge
+import io.flutter.plugin.common.EventChannel
+
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.soncamedia.listeningstation/audio_devices"
+    private val VAPI_METHOD_CHANNEL = "com.soncamedia.listeningstation/vapi_method"
+    private val VAPI_EVENT_CHANNEL = "com.soncamedia.listeningstation/vapi_event"
     private val ACTION_USB_PERMISSION = "com.soncamedia.listeningstation.USB_PERMISSION"
     private var mediaPlayer: MediaPlayer? = null
     private var usbPermissionCallback: ((Boolean) -> Unit)? = null
+    private var vapiBridge: VapiNativeBridge? = null
 
     // Persistent USB UART Connection Cache
     private var activeDevice: UsbDevice? = null
@@ -61,6 +67,13 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        volumeControlStream = AudioManager.STREAM_MUSIC
+
+        // Request RECORD_AUDIO permission if not granted yet
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 101)
+        }
+
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -69,7 +82,21 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val direction = if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            
+            // Điều chỉnh cả STREAM_MUSIC và STREAM_VOICE_CALL cùng lúc
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+            audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, direction, 0)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onDestroy() {
+        vapiBridge?.cleanUp()
         closeActiveUartConnection()
         unregisterReceiver(usbReceiver)
         super.onDestroy()
@@ -77,6 +104,11 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        val bridge = VapiNativeBridge(applicationContext, lifecycle)
+        vapiBridge = bridge
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VAPI_METHOD_CHANNEL).setMethodCallHandler(bridge)
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, VAPI_EVENT_CHANNEL).setStreamHandler(bridge)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAudioDevices" -> {

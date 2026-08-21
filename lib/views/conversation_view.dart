@@ -763,9 +763,9 @@ class _ConversationViewState extends State<ConversationView> {
       if (mounted) {
         final vm = context.read<ConversationViewModel>();
         if (vm.messages.isEmpty) {
-          debugPrint("[ConversationView] Re-entering empty conversation -> Re-starting call/chat");
+          debugPrint("[ConversationView] Empty messages on view mount -> Starting Vapi call");
           if (vm.flagVAPI) {
-            vm.toggleVapiFlag(true);
+            vm.startVapiCall();
           } else {
             vm.sendMessageAsync(hiddenInput: "Xin chào");
           }

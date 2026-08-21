@@ -50,13 +50,7 @@ class ConversationViewModel extends ChangeNotifier {
     // Load voices
     loadVoicesAsync();
     
-    debugPrint("[ConversationVM] Initializing ConversationViewModel. flagVAPI=$flagVAPI");
-    if (flagVAPI) {
-      _initVapi();
-    } else {
-      // Auto-start normal conversation
-      sendMessageAsync(hiddenInput: "Xin chào");
-    }
+    debugPrint("[ConversationVM] Initialized ConversationViewModel. flagVAPI=$flagVAPI");
   }
 
   Timer? _vapiTranscriptDebounce;
@@ -161,7 +155,12 @@ class ConversationViewModel extends ChangeNotifier {
       notifyListeners();
     });
 
-    _vapiService.startCall(assistantId: "741b69b0-d1ec-48cc-ac4b-8c4546c3cf79");
+    _vapiService.startCall(assistantId: "326d0d50-c102-446b-9fc5-90265dd901ae");
+  }
+
+  void startVapiCall() {
+    _speechService.stop();
+    _initVapi();
   }
 
   void toggleVapiFlag(bool value) {

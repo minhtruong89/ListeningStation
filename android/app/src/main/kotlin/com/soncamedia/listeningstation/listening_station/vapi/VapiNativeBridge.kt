@@ -26,18 +26,22 @@ class VapiNativeBridge(
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     init {
-        initVapi()
+        // Lazy initialization: Vapi will be initialized on demand when startCall is invoked
     }
 
     fun initVapi() {
         if (vapiClient == null) {
-            Log.d("VapiNativeBridge", "Creating Vapi client instance with public key: ${VapiConfig.PUBLIC_KEY}")
-            vapiClient = Vapi(
-                context = context,
-                lifecycle = lifecycle,
-                configuration = Vapi.Configuration(publicKey = VapiConfig.PUBLIC_KEY)
-            )
-            observeVapiEvents()
+            try {
+                Log.d("VapiNativeBridge", "Creating Vapi client instance with public key: ${VapiConfig.PUBLIC_KEY}")
+                vapiClient = Vapi(
+                    context = context,
+                    lifecycle = lifecycle,
+                    configuration = Vapi.Configuration(publicKey = VapiConfig.PUBLIC_KEY)
+                )
+                observeVapiEvents()
+            } catch (e: Exception) {
+                Log.e("VapiNativeBridge", "Error creating Vapi client instance: $e")
+            }
         }
     }
 

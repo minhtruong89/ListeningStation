@@ -319,6 +319,15 @@ class ConversationViewModel extends ChangeNotifier {
     _isFinalizeConfirmed = false;
     _finalizeResult = "Đang kiểm tra thông tin, vui lòng chờ...";
     _isFinalizeVisible = true;
+
+    // Ngắt cuộc gọi Vapi và micro ngay khi bắt đầu kết thúc hội thoại
+    if (flagVAPI) {
+      _vapiTranscriptDebounce?.cancel();
+      _vapiService.stopCall();
+      _vapiTranscriptSub?.cancel();
+      _vapiStateSub?.cancel();
+    }
+
     notifyListeners();
 
     final response = await _llmService.getFinalizeAIAsync(_messages);
@@ -389,6 +398,15 @@ class ConversationViewModel extends ChangeNotifier {
     _llmService.lastConversationHistory = List.from(_messages);
     _isFinalizeVisible = false;
     _speechService.stop();
+
+    // Tắt Vapi hoàn toàn khi rời khỏi ConversationView chuyển sang ResultView
+    if (flagVAPI) {
+      _vapiTranscriptDebounce?.cancel();
+      _vapiService.stopCall();
+      _vapiTranscriptSub?.cancel();
+      _vapiStateSub?.cancel();
+    }
+
     notifyListeners();
     onNavigation();
   }

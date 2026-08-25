@@ -25,6 +25,9 @@ import io.flutter.plugin.common.MethodChannel
 import android.media.ToneGenerator
 import android.view.WindowManager
 
+import android.media.MediaScannerConnection
+import android.os.Environment
+import android.util.Log
 import com.soncamedia.listeningstation.listening_station.vapi.VapiNativeBridge
 import io.flutter.plugin.common.EventChannel
 
@@ -69,9 +72,19 @@ class MainActivity : FlutterActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         volumeControlStream = AudioManager.STREAM_MUSIC
 
-        // Request RECORD_AUDIO permission if not granted yet
+        // Request runtime permissions: RECORD_AUDIO, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
+        val permissionsToRequest = mutableListOf<String>()
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 101)
+            permissionsToRequest.add(android.Manifest.permission.RECORD_AUDIO)
+        }
+        if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        if (checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        if (permissionsToRequest.isNotEmpty()) {
+            requestPermissions(permissionsToRequest.toTypedArray(), 101)
         }
 
         val filter = IntentFilter(ACTION_USB_PERMISSION)
@@ -111,6 +124,33 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "saveJsonToDownload" -> {
+                    val fileName = call.argument<String>("fileName") ?: "conversation.json"
+                    val jsonContent = call.argument<String>("jsonContent") ?: "{}"
+                    try {
+                        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        if (!downloadDir.exists()) {
+                            downloadDir.mkdirs()
+                        }
+                        val file = java.io.File(downloadDir, fileName)
+                        file.writeText(jsonContent, Charsets.UTF_8)
+
+                        // Quét MediaScanner để file hiển thị tức thì trên các trình duyệt file USB / Download TV / MTP
+                        MediaScannerConnection.scanFile(
+                            applicationContext,
+                            arrayOf(file.absolutePath),
+                            arrayOf("application/json")
+                        ) { path, uri ->
+                            Log.d("MainActivity", "MediaScanner registered file: $path -> $uri")
+                        }
+
+                        Log.d("MainActivity", "Successfully saved JSON to: ${file.absolutePath}")
+                        result.success(file.absolutePath)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Error saving JSON to download directory: $e")
+                        result.error("SAVE_FAILED", e.message, null)
+                    }
+                }
                 "getAudioDevices" -> {
                     val devicesList = getConnectedAudioDevices()
                     result.success(devicesList)

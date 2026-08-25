@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -54,8 +56,100 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   Timer? _vapiTranscriptDebounce;
-  String _pendingSpeaker = "";
-  String _pendingText = "";
+  File? _currentSessionLogFile;
+  String? _currentSessionName;
+  Timer? _saveLogFileDebounceTimer;
+
+  String? get currentSessionFileName => _currentSessionLogFile?.path.split(Platform.pathSeparator).last;
+  String? get currentSessionFilePath => _currentSessionLogFile?.path;
+
+  static const MethodChannel _audioDevicesChannel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
+
+  /// Tạo 1 file JSON lưu xuống folder Download của thiết bị theo format conversation_YYYYMMDD_HHmm.json
+  Future<void> initSessionLogAsync() async {
+    try {
+      final now = DateTime.now();
+      final yyyy = now.year.toString().padLeft(4, '0');
+      final mm = now.month.toString().padLeft(2, '0');
+      final dd = now.day.toString().padLeft(2, '0');
+      final hh = now.hour.toString().padLeft(2, '0');
+      final min = now.minute.toString().padLeft(2, '0');
+
+      // Format tên file: conversation_YYYYMMDD_HHmm (ví dụ: conversation_20260825_0901.json)
+      _currentSessionName = "conversation_$yyyy$mm${dd}_${hh}m$min";
+      final fileName = "$_currentSessionName.json";
+
+      Directory? downloadDir;
+      if (Platform.isAndroid) {
+        final standardDownload = Directory('/storage/emulated/0/Download');
+        if (await standardDownload.exists()) {
+          downloadDir = standardDownload;
+        } else {
+          downloadDir = await getExternalStorageDirectory();
+        }
+      } else {
+        downloadDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      }
+      downloadDir ??= await getApplicationDocumentsDirectory();
+
+      _currentSessionLogFile = File("${downloadDir.path}/$fileName");
+      debugPrint("[ConversationVM] Target session log: $fileName (path: ${_currentSessionLogFile?.path})");
+
+      await _writeSessionLogNow();
+    } catch (e) {
+      debugPrint("[ConversationVM] Error initializing session log file: $e");
+    }
+  }
+
+  void _scheduleSaveSessionLog() {
+    _saveLogFileDebounceTimer?.cancel();
+    _saveLogFileDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _writeSessionLogNow();
+    });
+  }
+
+  Future<void> _writeSessionLogNow() async {
+    final fileName = currentSessionFileName;
+    if (fileName == null) return;
+
+    try {
+      final now = DateTime.now();
+      final data = {
+        "session": _currentSessionName ?? "conversation",
+        "created_at": now.toIso8601String(),
+        "total_messages": _messages.length,
+        "messages": _messages.map((m) {
+          final t = m.timestamp;
+          final timeStr = "${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}";
+          return {
+            "speaker": m.sender,
+            "text": m.content,
+            "timestamp": timeStr,
+          };
+        }).toList(),
+      };
+
+      final encoder = const JsonEncoder.withIndent('  ');
+      final jsonContent = encoder.convert(data);
+
+      if (Platform.isAndroid) {
+        // Sử dụng Native Android API để ghi file vào Environment.DIRECTORY_DOWNLOADS và kích hoạt MediaScanner
+        final String? savedPath = await _audioDevicesChannel.invokeMethod<String>('saveJsonToDownload', {
+          'fileName': fileName,
+          'jsonContent': jsonContent,
+        });
+        debugPrint("[ConversationVM] Native saved conversation log (${_messages.length} msgs) -> $savedPath");
+      } else {
+        final file = _currentSessionLogFile;
+        if (file != null) {
+          await file.writeAsString(jsonContent, flush: true);
+          debugPrint("[ConversationVM] Dart saved conversation log (${_messages.length} msgs) -> ${file.path}");
+        }
+      }
+    } catch (e) {
+      debugPrint("[ConversationVM] Error writing session log file: $e");
+    }
+  }
 
   void _initVapi() {
     debugPrint("[ConversationVM] Setting up Vapi listeners & starting call...");
@@ -76,6 +170,7 @@ class ConversationViewModel extends ChangeNotifier {
             ));
           }
         }
+        _scheduleSaveSessionLog();
         notifyListeners();
         return;
       }
@@ -138,6 +233,7 @@ class ConversationViewModel extends ChangeNotifier {
           });
         }
       }
+      _scheduleSaveSessionLog();
       notifyListeners();
     });
 
@@ -180,6 +276,8 @@ class ConversationViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _saveLogFileDebounceTimer?.cancel();
+    _writeSessionLogNow();
     _vapiTranscriptDebounce?.cancel();
     _vapiTranscriptSub?.cancel();
     _vapiStateSub?.cancel();
@@ -278,6 +376,7 @@ class ConversationViewModel extends ChangeNotifier {
         timestamp: DateTime.now(),
       ));
       _userInput = "";
+      _writeSessionLogNow();
       notifyListeners();
     }
 
@@ -304,6 +403,7 @@ class ConversationViewModel extends ChangeNotifier {
       timestamp: DateTime.now(),
     ));
 
+    _writeSessionLogNow();
     _isProcessing = false;
     notifyListeners();
 
@@ -449,11 +549,13 @@ class ConversationViewModel extends ChangeNotifier {
     final demoMsgs = await _llmService.getDemoMessagesAsync();
     for (var msg in demoMsgs) {
       _messages.add(msg);
+      _scheduleSaveSessionLog();
       notifyListeners();
       await Future.delayed(const Duration(milliseconds: 300)); // Smooth script population
     }
 
     _isProcessing = false;
+    _writeSessionLogNow();
     notifyListeners();
   }
 

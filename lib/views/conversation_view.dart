@@ -762,6 +762,7 @@ class _ConversationViewState extends State<ConversationView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final vm = context.read<ConversationViewModel>();
+        vm.initSessionLogAsync();
         if (vm.messages.isEmpty) {
           debugPrint("[ConversationView] Empty messages on view mount -> Starting Vapi call");
           if (vm.flagVAPI) {

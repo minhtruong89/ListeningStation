@@ -153,6 +153,19 @@ class VapiService {
     }
   }
 
+  Future<bool> sendMessage(String message) async {
+    try {
+      LogService.log("[VapiService] Sending message: $message");
+      final bool? res = await _methodChannel.invokeMethod<bool>('sendMessage', {
+        'message': message,
+      });
+      return res ?? false;
+    } catch (e) {
+      debugPrint("[VapiService] Error sending message: $e");
+      return false;
+    }
+  }
+
   void dispose() {
     _eventSubscription?.cancel();
     _callStateController.close();

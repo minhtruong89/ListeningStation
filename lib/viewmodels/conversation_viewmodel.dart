@@ -55,6 +55,60 @@ class ConversationViewModel extends ChangeNotifier {
     debugPrint("[ConversationVM] Initialized ConversationViewModel. flagVAPI=$flagVAPI");
   }
 
+  int storytellingDurationSeconds = 180; // 3 phút tùy chỉnh trong app
+  bool _isStorytellingActive = false;
+  int _storytellingRemainingSeconds = 180;
+  DateTime? _storytellingStartTime;
+  Timer? _storytellingTimer;
+
+  bool get isStorytellingActive => _isStorytellingActive;
+  int get storytellingRemainingSeconds => _storytellingRemainingSeconds;
+  String get storytellingFormattedTime {
+    final minutes = (_storytellingRemainingSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_storytellingRemainingSeconds % 60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
+  }
+
+  void startStorytellingPhase({int? customSeconds}) {
+    _storytellingTimer?.cancel();
+    _isStorytellingActive = true;
+    _storytellingStartTime = DateTime.now();
+    _storytellingRemainingSeconds = customSeconds ?? storytellingDurationSeconds;
+    notifyListeners();
+
+    _storytellingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_storytellingRemainingSeconds > 1) {
+        _storytellingRemainingSeconds--;
+        notifyListeners();
+      } else {
+        stopStorytellingPhase();
+      }
+    });
+  }
+
+  void stopStorytellingPhase({bool notifyServer = true}) {
+    _storytellingTimer?.cancel();
+    if (_isStorytellingActive) {
+      _isStorytellingActive = false;
+      notifyListeners();
+
+      if (notifyServer) {
+        // Tự động append câu "Tôi đã kể xong." và gửi sang Vapi để bắt đầu Giai đoạn 2
+        _messages.add(ConversationMessage(
+          sender: "Người cần giúp đỡ",
+          content: "Tôi đã kể xong.",
+          timestamp: DateTime.now(),
+        ));
+        _writeSessionLogNow();
+        notifyListeners();
+
+        if (flagVAPI) {
+          _vapiService.sendMessage("Tôi đã kể xong.");
+        }
+      }
+    }
+  }
+
   Timer? _vapiTranscriptDebounce;
   File? _currentSessionLogFile;
   String? _currentSessionName;
@@ -170,6 +224,23 @@ class ConversationViewModel extends ChangeNotifier {
             ));
           }
         }
+        if (_isStorytellingActive &&
+            _storytellingStartTime != null &&
+            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 10) {
+          for (var vm in vapiMessages) {
+            if (vm.speaker != 'Trạm Lắng Nghe') {
+              final lower = vm.text.toLowerCase();
+              if (lower.contains("tôi đã kể xong") ||
+                  lower.contains("đã kể xong") ||
+                  lower.contains("kể xong rồi") ||
+                  lower.contains("kể xong")) {
+                LogService.log("[ConversationVM] Detected completion keyword in ConversationUpdate from user after 10s -> Auto closing storytelling popup");
+                stopStorytellingPhase(notifyServer: false);
+                break;
+              }
+            }
+          }
+        }
         _scheduleSaveSessionLog();
         notifyListeners();
         return;
@@ -185,6 +256,24 @@ class ConversationViewModel extends ChangeNotifier {
           SpeechService.sendAnimationFace("SAY");
         } else {
           SpeechService.sendAnimationFace("SILIENCE");
+        }
+
+        // Tự động đóng popup Kể tự do CHỈ KHI:
+        // 1. Đã qua ít nhất 10 giây từ khi mở popup
+        // 2. Người nói là Người dùng (KHÔNG PHẢI Trạm Lắng Nghe)
+        // 3. Chứa từ khóa 'tôi đã kể xong'
+        if (_isStorytellingActive &&
+            vm.speaker != 'Trạm Lắng Nghe' &&
+            _storytellingStartTime != null &&
+            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 10) {
+          final lower = newText.toLowerCase();
+          if (lower.contains("tôi đã kể xong") ||
+              lower.contains("đã kể xong") ||
+              lower.contains("kể xong rồi") ||
+              lower.contains("kể xong")) {
+            LogService.log("[ConversationVM] Detected 'tôi đã kể xong' from user after 10s -> Auto closing storytelling popup");
+            stopStorytellingPhase(notifyServer: false);
+          }
         }
 
         if (_messages.isNotEmpty && _messages.last.sender == vm.speaker) {
@@ -219,9 +308,18 @@ class ConversationViewModel extends ChangeNotifier {
             timestamp: DateTime.now(),
           ));
         }
+        // Tự động kích hoạt popup Kể tự do CHỈ KHI AI đã đọc đến đoạn kết thúc câu mời: "con sẽ ghi nhận hết ạ"
+        if (vm.speaker == 'Trạm Lắng Nghe' &&
+            (newText.toLowerCase().contains("con sẽ ghi nhận hết") ||
+             newText.toLowerCase().contains("ghi nhận hết ạ")) &&
+            !_isStorytellingActive) {
+          LogService.log("[ConversationVM] Detected final invitation phrase ('con sẽ ghi nhận hết') -> Auto starting startStorytellingPhase");
+          startStorytellingPhase();
+        }
+
         // Tự động kích hoạt nút "Kết thúc hội thoại" (Finalize) khi AI nói câu kết thúc
         if (vm.speaker == 'Trạm Lắng Nghe' &&
-            newText.contains("Con sẽ gửi hồ sơ này về Quỹ Bông Sen để xem xét") &&
+            newText.contains("Con sẽ gửi hồ sơ này") &&
             !_isFinalizeVisible &&
             !_isFinalizeConfirmed) {
           LogService.log("[ConversationVM] Detected completion phrase -> Auto triggering showFinalizeAsync");
@@ -276,6 +374,7 @@ class ConversationViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _storytellingTimer?.cancel();
     _saveLogFileDebounceTimer?.cancel();
     _writeSessionLogNow();
     _vapiTranscriptDebounce?.cancel();

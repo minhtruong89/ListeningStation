@@ -1,6 +1,8 @@
 package com.soncamedia.listeningstation.listening_station.vapi
 
 import ai.vapi.android.Vapi
+import ai.vapi.android.VapiMessage
+import ai.vapi.android.VapiMessageContent
 import android.content.Context
 import androidx.lifecycle.Lifecycle
 import io.flutter.plugin.common.EventChannel
@@ -24,6 +26,7 @@ class VapiNativeBridge(
     private var eventSink: EventChannel.EventSink? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var eventsJob: Job? = null
 
     init {
         // Lazy initialization: Vapi will be initialized on demand when startCall is invoked
@@ -32,7 +35,7 @@ class VapiNativeBridge(
     fun initVapi() {
         if (vapiClient == null) {
             try {
-                Log.d("VapiNativeBridge", "Creating Vapi client instance with public key: ${VapiConfig.PUBLIC_KEY}")
+                Log.d("VapiNativeBridge", "Creating fresh Vapi client instance with public key: ${VapiConfig.PUBLIC_KEY}")
                 vapiClient = Vapi(
                     context = context,
                     lifecycle = lifecycle,
@@ -47,7 +50,8 @@ class VapiNativeBridge(
 
     private fun observeVapiEvents() {
         val client = vapiClient ?: return
-        scope.launch {
+        eventsJob?.cancel()
+        eventsJob = scope.launch {
             client.eventFlow.collect { event ->
                 Log.d("VapiNativeBridge", "Received Vapi Event: $event")
                 handleVapiEvent(event)
@@ -191,24 +195,36 @@ class VapiNativeBridge(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "startCall" -> {
-                initVapi()
-                val client = vapiClient
-                if (client == null) {
-                    result.error("VAPI_ERROR", "Vapi client is null", null)
-                    return
-                }
                 val assistantIdArg = call.argument<String>("assistantId")
                 val assistantId = if (!assistantIdArg.isNullOrBlank()) assistantIdArg else VapiConfig.DEMO_ASSISTANT_ID
 
                 scope.launch {
                     try {
+                        try {
+                            vapiClient?.stop()
+                        } catch (e: Exception) {
+                            Log.w("VapiNativeBridge", "Error stopping previous call: $e")
+                        }
+                        vapiClient = null
+                        initVapi()
+
+                        val client = vapiClient
+                        if (client == null) {
+                            result.error("VAPI_ERROR", "Vapi client is null", null)
+                            return@launch
+                        }
+
+                        Log.d("VapiNativeBridge", "Starting Vapi call with assistantId: $assistantId")
                         val res = client.start(assistantId = assistantId)
                         res.onSuccess {
+                            Log.d("VapiNativeBridge", "client.start successful")
                             result.success(true)
                         }.onFailure { error ->
+                            Log.e("VapiNativeBridge", "client.start failed: ${error.message}")
                             result.error("VAPI_ERROR", error.message ?: "Failed to start Vapi call", null)
                         }
                     } catch (e: Exception) {
+                        Log.e("VapiNativeBridge", "Exception starting Vapi call: $e")
                         result.error("VAPI_ERROR", e.message ?: "Exception starting Vapi call", null)
                     }
                 }
@@ -220,7 +236,34 @@ class VapiNativeBridge(
                 } catch (e: Exception) {
                     Log.e("VapiNativeBridge", "Error stopping vapi: $e")
                 }
+                vapiClient = null
                 result.success(true)
+            }
+            "sendMessage" -> {
+                val message = call.argument<String>("message") ?: ""
+                Log.d("VapiNativeBridge", "sendMessage requested: '$message'")
+                scope.launch {
+                    try {
+                        val client = vapiClient
+                        if (client != null && message.isNotBlank()) {
+                            val vapiMsg = VapiMessage(
+                                type = "add-message",
+                                message = VapiMessageContent(
+                                    role = "user",
+                                    content = message
+                                )
+                            )
+                            val res = client.send(vapiMsg)
+                            Log.d("VapiNativeBridge", "client.send result: $res")
+                            result.success(true)
+                        } else {
+                            result.success(false)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("VapiNativeBridge", "Error sending message to Vapi: $e")
+                        result.success(false)
+                    }
+                }
             }
             else -> result.notImplemented()
         }

@@ -95,7 +95,6 @@ class _ConversationViewState extends State<ConversationView> {
 
 
   // Focus nodes for voice popup
-
   late final FocusNode _voiceConfirmFocusNode;
   late final FocusNode _voiceRetryFocusNode;
   late final FocusNode _voiceCancelFocusNode;
@@ -107,14 +106,14 @@ class _ConversationViewState extends State<ConversationView> {
   bool _isVoiceFinalizeFocused = false;
   bool _isVoiceStopFocused = false;
 
-
+  // Focus node for storytelling popup
+  late final FocusNode _storytellingFinishFocusNode;
+  bool _isStorytellingFinishFocused = false;
+  bool _prevIsStorytellingActive = false;
 
   // Track previous visibility states to detect changes
-
   bool _prevIsSummaryVisible = false;
-
   bool _prevIsFinalizeVisible = false;
-
   bool _prevIsFinalizeConfirmed = false;
 
   String _lastVoiceState = "idle";
@@ -136,7 +135,7 @@ class _ConversationViewState extends State<ConversationView> {
     
     // Do not show dashboard or steal focus if a popup is active
     final vm = context.read<ConversationViewModel>();
-    if (vm.isVoiceInputActive || vm.isSummaryVisible || vm.isFinalizeVisible) {
+    if (vm.isVoiceInputActive || vm.isSummaryVisible || vm.isFinalizeVisible || vm.isStorytellingActive) {
       return;
     }
 
@@ -748,11 +747,10 @@ class _ConversationViewState extends State<ConversationView> {
       if (mounted) setState(() => _isVoiceStopFocused = _voiceStopFocusNode.hasFocus);
     });
 
-
-
-
-
-
+    _storytellingFinishFocusNode = FocusNode();
+    _storytellingFinishFocusNode.addListener(() {
+      if (mounted) setState(() => _isStorytellingFinishFocused = _storytellingFinishFocusNode.hasFocus);
+    });
 
     // Register this view's adjacent nodes so Log button can navigate back into the bar
     // Loop: ... [Send/Input] → [Log] → [Mute] ...
@@ -775,52 +773,32 @@ class _ConversationViewState extends State<ConversationView> {
     });
   }
 
-
-
   @override
-
   void dispose() {
-
     // Unregister Log navigation refs so they don't dangle after this view is gone
-
     if (LogService.prevFocusNode == _sendButtonFocusNode) LogService.prevFocusNode = null;
-
     if (LogService.nextFocusNode == _muteButtonFocusNode) LogService.nextFocusNode = null;
 
-
-
     _chatInputController.dispose();
-
     _scrollController.dispose();
-
     _inputFocusNode.dispose();
-
     _muteButtonFocusNode.dispose();
-
     _demoButtonFocusNode.dispose();
-
     _finalizeButtonFocusNode.dispose();
-
     _voiceButtonFocusNode.dispose();
-
     _sendButtonFocusNode.dispose();
-
     _closeSummaryButtonFocusNode.dispose();
-
     _cancelFinalizeButtonFocusNode.dispose();
-
     _confirmFinalizeButtonFocusNode.dispose();
-
     _goToResultButtonFocusNode.dispose();
-
     _voiceConfirmFocusNode.dispose();
     _voiceRetryFocusNode.dispose();
     _voiceCancelFocusNode.dispose();
     _voiceFinalizeFocusNode.dispose();
     _voiceStopFocusNode.dispose();
+    _storytellingFinishFocusNode.dispose();
 
     super.dispose();
-
   }
 
 
@@ -1000,11 +978,20 @@ class _ConversationViewState extends State<ConversationView> {
       _prevIsFinalizeConfirmed = true;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-
         _goToResultButtonFocusNode.requestFocus();
-
       });
+    }
 
+    if (vm.isStorytellingActive && !_prevIsStorytellingActive) {
+      _prevIsStorytellingActive = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _storytellingFinishFocusNode.requestFocus();
+      });
+    } else if (!vm.isStorytellingActive && _prevIsStorytellingActive) {
+      _prevIsStorytellingActive = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _muteButtonFocusNode.requestFocus();
+      });
     }
 
 
@@ -1357,7 +1344,7 @@ class _ConversationViewState extends State<ConversationView> {
 
                       child: Focus(
 
-                        descendantsAreFocusable: !vm.isSummaryVisible && !vm.isFinalizeVisible && !vm.isVoiceInputActive && _isDashboardVisible,
+                        descendantsAreFocusable: !vm.isSummaryVisible && !vm.isFinalizeVisible && !vm.isVoiceInputActive && !vm.isStorytellingActive && _isDashboardVisible,
 
                         child: Padding(
 
@@ -1823,8 +1810,11 @@ class _ConversationViewState extends State<ConversationView> {
 
  
 
-              // OVERLAY DIALOG: Summary details popup
+              // OVERLAY DIALOG: Giai đoạn kể tự do (3 phút)
+              if (vm.isStorytellingActive)
+                _buildStorytellingDialog(scale, vm),
 
+              // OVERLAY DIALOG: Summary details popup
               if (vm.isSummaryVisible)
 
                 Container(
@@ -2302,25 +2292,213 @@ class _ConversationViewState extends State<ConversationView> {
                       vm.showFinalizeAsync();
                     },
                   ),
-
                 ),
-
             ],
-
           ),
-
         ),
-
       ),
-
     ),
-
   ),
-
 );
-
   }
 
+  Widget _buildStorytellingDialog(double scale, ConversationViewModel vm) {
+    final List<Map<String, String>> guideItems = [
+      {
+        "num": "①",
+        "title": "THÔNG TIN CÁ NHÂN",
+        "desc": "Tên, tuổi, quê quán, người ở cùng, công việc mưu sinh",
+      },
+      {
+        "num": "②",
+        "title": "HOÀN CẢNH KHÓ KHĂN",
+        "desc": "Khó khăn cụ thể, bắt đầu từ khi nào, điều lo lắng nhất",
+      },
+      {
+        "num": "③",
+        "title": "TÌNH TRẠNG SỨC KHỎE",
+        "desc": "Bệnh tật, chẩn đoán của bác sĩ, chi phí cần điều trị gấp",
+      },
+      {
+        "num": "④",
+        "title": "THU NHẬP & KINH TẾ",
+        "desc": "Thu nhập mỗi tháng, tiền còn lại sau chi tiêu, nợ nần",
+      },
+      {
+        "num": "⑤",
+        "title": "GIA ĐÌNH & NGƯỜI PHỤ THUỘC",
+        "desc": "Số người trong nhà, người cần nuôi dưỡng, ai có thể hỗ trợ",
+      },
+      {
+        "num": "⑥",
+        "title": "MỨC ĐỘ KHẨN CẤP",
+        "desc": "Cần giúp trong bao lâu, tiền ăn uống và chỗ ở hiện tại",
+      },
+    ];
+
+    return Container(
+      color: Colors.black87,
+      child: Center(
+        child: Container(
+          width: 680.0 * scale,
+          height: 520.0 * scale,
+          padding: EdgeInsets.all(24.0 * scale),
+          decoration: AppStyles.glassDecoration(
+            borderColor: AppStyles.primaryAccent,
+            radius: 18.0 * scale,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header Row: Title + Countdown Timer Badge
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.record_voice_over, color: AppStyles.primaryAccent, size: 28.0 * scale),
+                      SizedBox(width: 10.0 * scale),
+                      Text(
+                        "GIAI ĐOẠN KỂ TỰ DO",
+                        style: AppStyles.titleLarge.copyWith(
+                          fontSize: 21.0 * scale,
+                          fontWeight: FontWeight.bold,
+                          color: AppStyles.primaryAccent,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 6.0 * scale),
+                    decoration: BoxDecoration(
+                      color: AppStyles.primaryAccent.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(20.0 * scale),
+                      border: Border.all(color: AppStyles.primaryAccent, width: 1.5 * scale),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.timer, color: AppStyles.primaryAccent, size: 20.0 * scale),
+                        SizedBox(width: 6.0 * scale),
+                        Text(
+                          vm.storytellingFormattedTime,
+                          style: TextStyle(
+                            fontSize: 18.0 * scale,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 10.0 * scale),
+              Text(
+                "Cô/bác cứ thoải mái chia sẻ chi tiết hoàn cảnh của mình. Trạm Lắng Nghe đang ghi nhận:",
+                style: AppStyles.bodyMedium.copyWith(
+                  fontSize: 13.5 * scale,
+                  color: AppStyles.textSecondary,
+                ),
+              ),
+              SizedBox(height: 12.0 * scale),
+
+              // 6 Summary Guidance Items
+              Expanded(
+                child: Container(
+                  padding: EdgeInsets.all(12.0 * scale),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(12.0 * scale),
+                    border: Border.all(color: AppStyles.glassCardBorder),
+                  ),
+                  child: ListView.separated(
+                    itemCount: guideItems.length,
+                    separatorBuilder: (context, index) => Divider(color: Colors.white12, height: 8.0 * scale),
+                    itemBuilder: (context, index) {
+                      final item = guideItems[index];
+                      return Padding(
+                        padding: EdgeInsets.symmetric(vertical: 2.0 * scale),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "– ${item["num"]}",
+                              style: TextStyle(
+                                fontSize: 13.5 * scale,
+                                fontWeight: FontWeight.bold,
+                                color: AppStyles.primaryAccent,
+                              ),
+                            ),
+                            SizedBox(width: 8.0 * scale),
+                            Expanded(
+                              child: RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: "${item["title"]}: ",
+                                      style: TextStyle(
+                                        fontSize: 13.5 * scale,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: item["desc"],
+                                      style: TextStyle(
+                                        fontSize: 12.5 * scale,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(height: 14.0 * scale),
+
+              // Action Button: Done Telling Early
+              SizedBox(
+                height: 46.0 * scale,
+                child: ElevatedButton.icon(
+                  focusNode: _storytellingFinishFocusNode,
+                  onPressed: () => vm.stopStorytellingPhase(),
+                  icon: Icon(Icons.check_circle_outline, size: 20.0 * scale),
+                  label: Text(
+                    "CON ĐÃ KỂ XONG (TIẾP TỤC)",
+                    style: TextStyle(
+                      fontSize: 14.0 * scale,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isStorytellingFinishFocused
+                        ? AppStyles.primaryAccent
+                        : AppStyles.primaryAccent.withValues(alpha: 0.75),
+                    foregroundColor: AppStyles.backgroundEnd,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                    side: _isStorytellingFinishFocused
+                        ? BorderSide(color: Colors.white, width: 3.0 * scale)
+                        : null,
+                    elevation: _isStorytellingFinishFocused ? 8 : 2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 

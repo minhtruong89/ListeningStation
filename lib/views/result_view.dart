@@ -39,6 +39,17 @@ class _ResultViewState extends State<ResultView> {
         });
       }
     });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final resultVm = context.read<ResultViewModel>();
+        final converseVm = context.read<ConversationViewModel>();
+        resultVm.setConversationViewModel(converseVm);
+        if (!resultVm.isResultReady && !resultVm.isCalculating) {
+          resultVm.calculateScoreAsync();
+        }
+      }
+    });
   }
 
   @override
@@ -54,6 +65,7 @@ class _ResultViewState extends State<ResultView> {
     final mainVm = context.read<MainViewModel>();
     final authVm = context.read<AuthViewModel>();
     final converseVm = context.read<ConversationViewModel>();
+    resultVm.setConversationViewModel(converseVm);
 
     final Size screenSize = MediaQuery.of(context).size;
     double scale = (screenSize.height / 720.0 * MediaQuery.of(context).devicePixelRatio).clamp(1.0, 2.5);
@@ -215,26 +227,67 @@ class _ResultViewState extends State<ResultView> {
                                 )
                               : Stack(
                                   children: [
-                                    // Top-left Distress Score Info
+                                    // Top-left Distress Score Info and Disbursement Multiplier Info
                                     Positioned(
                                       top: 0,
                                       left: 0,
-                                      child: Container(
-                                        padding: EdgeInsets.symmetric(horizontal: 10.0 * scale, vertical: 6.0 * scale),
-                                        decoration: BoxDecoration(
-                                          color: AppStyles.primaryAccent.withValues(alpha: 0.12),
-                                          borderRadius: BorderRadius.circular(6.0 * scale),
-                                          border: Border.all(color: AppStyles.primaryAccent.withValues(alpha: 0.3)),
-                                        ),
-                                        child: Text(
-                                          "Distress Score: ${resultVm.score.toStringAsFixed(0)}%",
-                                          style: TextStyle(
-                                            color: AppStyles.primaryAccent,
-                                            fontSize: 12.0 * scale,
-                                            fontWeight: FontWeight.bold,
-                                            fontFamily: 'monospace',
+                                      child: Wrap(
+                                        spacing: 8.0 * scale,
+                                        runSpacing: 6.0 * scale,
+                                        children: [
+                                          Container(
+                                            padding: EdgeInsets.symmetric(horizontal: 10.0 * scale, vertical: 6.0 * scale),
+                                            decoration: BoxDecoration(
+                                              color: AppStyles.primaryAccent.withValues(alpha: 0.12),
+                                              borderRadius: BorderRadius.circular(6.0 * scale),
+                                              border: Border.all(color: AppStyles.primaryAccent.withValues(alpha: 0.3)),
+                                            ),
+                                            child: Text(
+                                              "Distress Score: ${resultVm.score.toStringAsFixed(0)}",
+                                              style: TextStyle(
+                                                color: AppStyles.primaryAccent,
+                                                fontSize: 12.0 * scale,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'monospace',
+                                              ),
+                                            ),
                                           ),
-                                        ),
+                                          Container(
+                                            padding: EdgeInsets.symmetric(horizontal: 10.0 * scale, vertical: 6.0 * scale),
+                                            decoration: BoxDecoration(
+                                              color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.12),
+                                              borderRadius: BorderRadius.circular(6.0 * scale),
+                                              border: Border.all(color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.3)),
+                                            ),
+                                            child: Text(
+                                              "Hệ số giải ngân: ${(resultVm.disbursementMultiplier * 100).toStringAsFixed(0)}%",
+                                              style: TextStyle(
+                                                color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                                fontSize: 12.0 * scale,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'monospace',
+                                              ),
+                                            ),
+                                          ),
+                                          if (resultVm.isCaseClosed)
+                                            Container(
+                                              padding: EdgeInsets.symmetric(horizontal: 10.0 * scale, vertical: 6.0 * scale),
+                                              decoration: BoxDecoration(
+                                                color: AppStyles.errorColor.withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(6.0 * scale),
+                                                border: Border.all(color: AppStyles.errorColor),
+                                              ),
+                                              child: Text(
+                                                "TẠM DỪNG - ĐÓNG CA",
+                                                style: TextStyle(
+                                                  color: AppStyles.errorColor,
+                                                  fontSize: 12.0 * scale,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'monospace',
+                                                ),
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
                                     
@@ -246,24 +299,35 @@ class _ResultViewState extends State<ResultView> {
                                           crossAxisAlignment: CrossAxisAlignment.center,
                                           children: [
                                             SizedBox(height: 40.0 * scale), // Spacer for top-left distress badge
-                                            Icon(Icons.verified, color: AppStyles.successColor, size: 56.0 * scale),
+                                            Icon(
+                                              resultVm.isCaseClosed ? Icons.cancel_outlined : Icons.verified,
+                                              color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                              size: 56.0 * scale,
+                                            ),
                                             SizedBox(height: 6.0 * scale),
                                             Text(
-                                              "SỐ TIỀN PHÊ DUYỆT CHỈ ĐỊNH",
-                                              style: AppStyles.bodyLarge.copyWith(fontSize: 16.0 * scale),
+                                              resultVm.isCaseClosed ? "CA HỖ TRỢ BỊ TẠM DỪNG - ĐÓNG CA" : "SỐ TIỀN PHÊ DUYỆT CHỈ ĐỊNH",
+                                              style: AppStyles.bodyLarge.copyWith(
+                                                fontSize: 16.0 * scale,
+                                                color: resultVm.isCaseClosed ? AppStyles.errorColor : null,
+                                                fontWeight: resultVm.isCaseClosed ? FontWeight.bold : null,
+                                              ),
                                             ),
                                             SizedBox(height: 16.0 * scale),
-   
+    
                                             // Big Glowing Approved Amount Box
                                             Container(
                                               padding: EdgeInsets.symmetric(horizontal: 24.0 * scale, vertical: 16.0 * scale),
                                               decoration: BoxDecoration(
-                                                color: AppStyles.successColor.withValues(alpha: 0.12),
+                                                color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.12),
                                                 borderRadius: BorderRadius.circular(16.0 * scale),
-                                                border: Border.all(color: AppStyles.successColor, width: 1.5 * scale),
+                                                border: Border.all(
+                                                  color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                                  width: 1.5 * scale,
+                                                ),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: AppStyles.successColor.withValues(alpha: 0.2),
+                                                    color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.2),
                                                     blurRadius: 16.0 * scale,
                                                     spreadRadius: 2.0 * scale,
                                                   )
@@ -272,7 +336,7 @@ class _ResultViewState extends State<ResultView> {
                                               child: Text(
                                                 "${_formatCurrency(resultVm.decision?.approvedAmount ?? 0.0)} VNĐ",
                                                 style: AppStyles.titleHuge.copyWith(
-                                                  color: AppStyles.successColor,
+                                                  color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
                                                   fontSize: 36.0 * scale,
                                                 ),
                                               ),

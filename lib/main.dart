@@ -81,7 +81,11 @@ void main() async {
           create: (_) => ConversationViewModel(llmService, speechService, ruleEngineService),
         ),
         ChangeNotifierProvider<ResultViewModel>(
-          create: (_) => ResultViewModel(ruleEngineService, llmService),
+          create: (ctx) => ResultViewModel(
+            ruleEngineService,
+            llmService,
+            ctx.read<ConversationViewModel>(),
+          ),
         ),
       ],
       child: const ListeningStationApp(),

@@ -2,27 +2,61 @@ import 'package:flutter/foundation.dart';
 import '../models/patient.dart';
 import '../services/llm_service.dart';
 import '../services/rule_engine_service.dart';
+import 'conversation_viewmodel.dart';
 
 class ResultViewModel extends ChangeNotifier {
   final IRuleEngineService _ruleEngine;
   final ILLMService _llmService;
+  ConversationViewModel? _conversationViewModel;
 
   RuleResult? _decision;
   String _distressScore = "Đang tính điểm...";
   double _score = 0.0;
+  double _disbursementMultiplier = 1.0;
   bool _isResultReady = false;
+  bool _isCalculating = false;
+  bool _isCaseClosed = false;
+  Map<String, dynamic>? _lastScoringData;
 
-  ResultViewModel(this._ruleEngine, this._llmService) {
+  ResultViewModel(this._ruleEngine, this._llmService, [this._conversationViewModel]) {
     calculateScoreAsync();
   }
 
   RuleResult? get decision => _decision;
   String get distressScore => _distressScore;
   double get score => _score;
+  double get disbursementMultiplier => _disbursementMultiplier;
   bool get isResultReady => _isResultReady;
+  bool get isCalculating => _isCalculating;
+  bool get isCaseClosed => _isCaseClosed;
+  Map<String, dynamic>? get lastScoringData => _lastScoringData;
+
+  void setConversationViewModel(ConversationViewModel vm) {
+    _conversationViewModel = vm;
+    if (_lastScoringData != null) {
+      _conversationViewModel?.updateSessionLogWithScoring(_lastScoringData!);
+    }
+  }
+
+  /// Tính hệ số giải ngân dựa theo bảng quy tắc Distress/Severity Score:
+  /// - Severity = 0 (hoặc TẠM DỪNG - ĐÓNG CA): 0% (0.0)
+  /// - Severity >= 76: 120% (1.20)
+  /// - Severity >= 51: 100% (1.00)
+  /// - Severity >= 26: 80% (0.80)
+  /// - Severity < 26: 60% (0.60)
+  double calculateDisbursementMultiplier(double severityScore) {
+    if (severityScore <= 0) return 0.0;
+    if (severityScore >= 76) return 1.20;
+    if (severityScore >= 51) return 1.00;
+    if (severityScore >= 26) return 0.80;
+    return 0.60;
+  }
 
   Future<void> calculateScoreAsync() async {
+    if (_isCalculating) return;
+    _isCalculating = true;
     _isResultReady = false;
+    _isCaseClosed = false;
     _distressScore = "Đang tính điểm...";
     notifyListeners();
 
@@ -30,63 +64,152 @@ class ResultViewModel extends ChangeNotifier {
       final scoreStr = await _llmService.getDistressScoreAIAsync(_llmService.lastConversationHistory);
       _distressScore = scoreStr;
 
-      // Extract numeric score percentage
-      _score = 0.0;
-      final totalScoreMatch = RegExp(
-        r'(?:Total\s+Score|Score)[:\s]+(\d+)',
-        caseSensitive: false,
-      ).firstMatch(scoreStr);
+      // 0. Kiểm tra Tầng bảo vệ — Sàng lọc tính chính đáng
+      final statusMatch = RegExp(r'(?:Trạng thái|Status)[^\n:]*:\s*([^\n]+)', caseSensitive: false).firstMatch(scoreStr);
+      final statusText = statusMatch?.group(1)?.trim() ?? "";
+      final bool hasCloseSignal = statusText.toUpperCase().contains("TẠM DỪNG") ||
+          statusText.toUpperCase().contains("ĐÓNG CA") ||
+          scoreStr.toUpperCase().contains("TẠM DỪNG - ĐÓNG CA") ||
+          scoreStr.toUpperCase().contains("KHÔNG ĐÁP ỨNG TÍNH CHÍNH ĐÁNG");
 
-      if (totalScoreMatch != null) {
-        _score = double.tryParse(totalScoreMatch.group(1)!) ?? 0.0;
-      } else {
-        final allDigitMatches = RegExp(r'\d+').allMatches(scoreStr).toList();
-        if (allDigitMatches.isNotEmpty) {
-          _score = double.tryParse(allDigitMatches.last.group(0)!) ?? 0.0;
-        }
-      }
+      _isCaseClosed = hasCloseSignal;
 
-      if (_score > 0) {
-        double finalAmount = 0.0;
-        double minLimit = _llmService.caseOperatorMin;
-        double maxLimit = _llmService.caseOperatorMax;
+      // Trích xuất các trường chi tiết
+      final emergencyText = _extractSection(scoreStr, RegExp(r'(?:Emergency|Mức độ khẩn cấp)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
+      final incomeText = _extractSection(scoreStr, RegExp(r'(?:Income\s*&\s*RRTC|Thu nhập & RRTC|Income)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
+      final familyText = _extractSection(scoreStr, RegExp(r'(?:Family|Gánh nặng gia đình)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
+      final healthText = _extractSection(scoreStr, RegExp(r'(?:Health|Sức khỏe)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
+      final formulaText = _extractSection(scoreStr, RegExp(r'(?:Công thức|Formula)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
+      final verificationTierText = _extractSection(scoreStr, RegExp(r'(?:Xác minh chứng cứ|Verification Tier)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
+      final conclusionText = _extractSection(scoreStr, RegExp(r'(?:Kết luận|Conclusion)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
 
-        if (_llmService.flagOperatorExact) {
-          finalAmount = _llmService.caseOperatorExact * (_score / 100.0);
-        } else {
-          // 1. Get max limit from rule engine
-          final double maxAmount = await _ruleEngine.getMaxTransactionLimitAsync();
+      final emergencyScore = _extractScoreNumber(emergencyText, 35);
+      final incomeScore = _extractScoreNumber(incomeText, 35);
+      final familyScore = _extractScoreNumber(familyText, 30);
+      final healthScore = _extractScoreNumber(healthText, 30);
 
-          // 2. Calculate score money
-          final double conversationScoreMoney = maxAmount * (_score / 100.0);
+      double proposedAmount = 0.0;
+      double finalAmount = 0.0;
+      double minLimit = _llmService.caseOperatorMin;
+      double maxLimit = _llmService.caseOperatorMax;
 
-          // 3. Get operator limits
-          minLimit = _llmService.caseOperatorMin;
-          maxLimit = _llmService.caseOperatorMax;
+      if (_isCaseClosed) {
+        // TẦNG BẢO VỆ KÍCH HOẠT: TẠM DỪNG - ĐÓNG CA (Số tiền giải ngân = 0)
+        _score = 0.0;
+        _disbursementMultiplier = 0.0;
+        proposedAmount = _llmService.flagOperatorExact ? _llmService.caseOperatorExact : 0.0;
+        finalAmount = 0.0;
 
-          // 4. Clamped approved amount
-          finalAmount = conversationScoreMoney.clamp(minLimit, maxLimit);
-        }
+        final reason = conclusionText.isNotEmpty
+            ? conclusionText
+            : "Ca bị TẠM DỪNG - ĐÓNG CA do phát hiện dấu hiệu quậy phá, mục đích không chính đáng (trả nợ cá nhân, cờ bạc, rượu chè...), hoặc không có nhu cầu hỗ trợ tài chính (chỉ cần tư vấn tâm lý).";
 
-        _decision = RuleResult(
-          isEligible: finalAmount > 0,
-          approvedAmount: finalAmount,
-          explanation: _llmService.flagOperatorExact
-              ? "Hạn mức ${_formatCurrency(finalAmount)}đ được phê duyệt dựa trên chỉ số Distress Score (${_score.toStringAsFixed(0)}%) và Hạn mức Đề ra (${_formatCurrency(_llmService.caseOperatorExact)}đ)."
-              : "Hạn mức ${_formatCurrency(finalAmount)}đ được phê duyệt dựa trên chỉ số Distress Score (${_score.toStringAsFixed(0)}%) và hạn mức cho phép của nhân viên (${_formatCurrency(minLimit)}đ - ${_formatCurrency(maxLimit)}đ).",
-          computedAt: DateTime.now(),
-        );
-
-        _isResultReady = true;
-      } else {
-        // Fallback or score is 0
         _decision = RuleResult(
           isEligible: false,
           approvedAmount: 0.0,
-          explanation: "Không phát hiện Distress Score hợp lệ để tính toán mức tài trợ.",
+          explanation: reason,
           computedAt: DateTime.now(),
         );
+
         _isResultReady = true;
+      } else {
+        // Trích xuất điểm Severity/Distress Score từ câu trả lời của AI
+        _score = 0.0;
+        final totalScoreMatch = RegExp(
+          r'(?:Total\s+Score|Severity\s+Score|Score)[:\s]+(\d+)',
+          caseSensitive: false,
+        ).firstMatch(scoreStr);
+
+        if (totalScoreMatch != null) {
+          _score = double.tryParse(totalScoreMatch.group(1)!) ?? 0.0;
+        } else {
+          final allDigitMatches = RegExp(r'\d+').allMatches(scoreStr).toList();
+          if (allDigitMatches.isNotEmpty) {
+            _score = double.tryParse(allDigitMatches.last.group(0)!) ?? 0.0;
+          }
+        }
+
+        // Xác định hệ số giải ngân
+        final multiplierMatch = RegExp(
+          r'(?:Hệ\s*số\s*giải\s*ngân|Disbursement\s*Multiplier)[:\s]+(\d+)%?',
+          caseSensitive: false,
+        ).firstMatch(scoreStr);
+
+        if (multiplierMatch != null) {
+          final parsed = double.tryParse(multiplierMatch.group(1)!);
+          if (parsed != null && parsed >= 0) {
+            _disbursementMultiplier = parsed > 2.0 ? parsed / 100.0 : parsed;
+          } else {
+            _disbursementMultiplier = calculateDisbursementMultiplier(_score);
+          }
+        } else {
+          _disbursementMultiplier = calculateDisbursementMultiplier(_score);
+        }
+
+        if (_score > 0) {
+          // 1. Lấy số tiền đề xuất
+          if (_llmService.flagOperatorExact) {
+            proposedAmount = _llmService.caseOperatorExact;
+          } else {
+            final double maxAmount = await _ruleEngine.getMaxTransactionLimitAsync();
+            proposedAmount = maxAmount;
+          }
+
+          // 2. Nhân số tiền đề xuất với hệ số giải ngân
+          final double calculatedMoney = proposedAmount * _disbursementMultiplier;
+
+          // 3. Giới hạn theo minLimit và maxLimit của tác viên
+          minLimit = _llmService.caseOperatorMin;
+          maxLimit = _llmService.caseOperatorMax;
+
+          finalAmount = calculatedMoney.clamp(minLimit, maxLimit);
+
+          _decision = RuleResult(
+            isEligible: finalAmount > 0,
+            approvedAmount: finalAmount,
+            explanation: _llmService.flagOperatorExact
+                ? "Hạn mức ${_formatCurrency(finalAmount)}đ được phê duyệt dựa trên Hệ số giải ngân (${(_disbursementMultiplier * 100).toStringAsFixed(0)}% - Distress Score ${_score.toStringAsFixed(0)}) và Số tiền đề xuất (${_formatCurrency(proposedAmount)}đ)."
+                : "Hạn mức ${_formatCurrency(finalAmount)}đ được phê duyệt dựa trên Hệ số giải ngân (${(_disbursementMultiplier * 100).toStringAsFixed(0)}% - Distress Score ${_score.toStringAsFixed(0)}) và hạn mức cho phép của nhân viên (${_formatCurrency(minLimit)}đ - ${_formatCurrency(maxLimit)}đ).",
+            computedAt: DateTime.now(),
+          );
+
+          _isResultReady = true;
+        } else {
+          // Fallback khi score bằng 0
+          _decision = RuleResult(
+            isEligible: false,
+            approvedAmount: 0.0,
+            explanation: "Không phát hiện Distress Score hợp lệ để tính toán mức tài trợ.",
+            computedAt: DateTime.now(),
+          );
+          _isResultReady = true;
+        }
+      }
+
+      _lastScoringData = {
+        "status": _isCaseClosed ? "TẠM DỪNG - ĐÓNG CA" : (statusText.isNotEmpty ? statusText : "HỢP LỆ"),
+        "emergency": emergencyText,
+        "emergency_score": ?emergencyScore,
+        "income_rrtc": incomeText,
+        "income_score": ?incomeScore,
+        "family": familyText,
+        "family_score": ?familyScore,
+        "health": healthText,
+        "health_score": ?healthScore,
+        "distress_score": _score.toInt(),
+        if (formulaText.isNotEmpty) "formula": formulaText,
+        "disbursement_multiplier": _disbursementMultiplier,
+        "disbursement_multiplier_percent": "${(_disbursementMultiplier * 100).toStringAsFixed(0)}%",
+        "proposed_amount": proposedAmount,
+        "approved_amount": finalAmount,
+        if (verificationTierText.isNotEmpty) "verification_tier": verificationTierText,
+        if (conclusionText.isNotEmpty) "conclusion": conclusionText,
+        "raw_scoring_response": scoreStr,
+      };
+
+      // Tự động ghi lại kết quả tính điểm vào file log conversation JSON
+      if (_conversationViewModel != null && _lastScoringData != null) {
+        await _conversationViewModel!.updateSessionLogWithScoring(_lastScoringData!);
       }
     } catch (e) {
       _distressScore = "Lỗi tính toán: $e";
@@ -97,8 +220,21 @@ class ResultViewModel extends ChangeNotifier {
         computedAt: DateTime.now(),
       );
       _isResultReady = true;
+    } finally {
+      _isCalculating = false;
+      notifyListeners();
     }
-    notifyListeners();
+  }
+
+  String _extractSection(String text, RegExp reg) {
+    final m = reg.firstMatch(text);
+    return m != null ? (m.group(1)?.trim() ?? "") : "";
+  }
+
+  int? _extractScoreNumber(String text, int maxPoints) {
+    final m = RegExp('(\\d+)\\s*/\\s*$maxPoints').firstMatch(text);
+    if (m != null) return int.tryParse(m.group(1)!);
+    return null;
   }
 
   // ignore: unused_element
@@ -113,7 +249,11 @@ class ResultViewModel extends ChangeNotifier {
     _decision = null;
     _distressScore = "Đang tính điểm...";
     _score = 0.0;
+    _disbursementMultiplier = 1.0;
     _isResultReady = false;
+    _isCalculating = false;
+    _isCaseClosed = false;
+    _lastScoringData = null;
     notifyListeners();
   }
 }

@@ -113,9 +113,21 @@ class ConversationViewModel extends ChangeNotifier {
   File? _currentSessionLogFile;
   String? _currentSessionName;
   Timer? _saveLogFileDebounceTimer;
+  Map<String, dynamic>? _scoringResult;
 
   String? get currentSessionFileName => _currentSessionLogFile?.path.split(Platform.pathSeparator).last;
   String? get currentSessionFilePath => _currentSessionLogFile?.path;
+  Map<String, dynamic>? get scoringResult => _scoringResult;
+
+  /// Cập nhật kết quả chấm điểm (distress score, hệ số giải ngân, breakdown...) và ghi ngay vào file log session
+  Future<void> updateSessionLogWithScoring(Map<String, dynamic> data) async {
+    _scoringResult = data;
+    if (_currentSessionLogFile == null) {
+      await initSessionLogAsync();
+    } else {
+      await _writeSessionLogNow();
+    }
+  }
 
   static const MethodChannel _audioDevicesChannel = MethodChannel('com.soncamedia.listeningstation/audio_devices');
 
@@ -168,10 +180,11 @@ class ConversationViewModel extends ChangeNotifier {
 
     try {
       final now = DateTime.now();
-      final data = {
+      final Map<String, dynamic> data = {
         "session": _currentSessionName ?? "conversation",
         "created_at": now.toIso8601String(),
         "total_messages": _messages.length,
+        if (_scoringResult != null) "scoring_result": _scoringResult,
         "messages": _messages.map((m) {
           final t = m.timestamp;
           final timeStr = "${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}";
@@ -665,6 +678,9 @@ class ConversationViewModel extends ChangeNotifier {
     _isFinalizeVisible = false;
     _isFinalizeConfirmed = false;
     _isSummaryVisible = false;
+    _scoringResult = null;
+    _currentSessionName = null;
+    _currentSessionLogFile = null;
     notifyListeners();
 
     // Dừng cuộc gọi Vapi khi dọn dẹp hội thoại, không tự động gọi lại ở đây để tránh phát tiếng ngoài màn hình

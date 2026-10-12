@@ -60,14 +60,6 @@ class _ConversationViewState extends State<ConversationView> {
 
   late final FocusNode _closeSummaryButtonFocusNode;
 
-  late final FocusNode _cancelFinalizeButtonFocusNode;
-
-  late final FocusNode _confirmFinalizeButtonFocusNode;
-
-  late final FocusNode _goToResultButtonFocusNode;
-
-
-
   bool _isMuteFocused = false;
 
   bool _isDemoFocused = false;
@@ -80,19 +72,9 @@ class _ConversationViewState extends State<ConversationView> {
 
   bool _isSendFocused = false;
 
-
-
   // Focus states for popup buttons
 
   bool _isCloseSummaryFocused = false;
-
-  bool _isCancelFinalizeFocused = false;
-
-  bool _isConfirmFinalizeFocused = false;
-
-  bool _isGoToResultFocused = false;
-
-
 
   // Focus nodes for voice popup
   late final FocusNode _voiceConfirmFocusNode;
@@ -113,8 +95,6 @@ class _ConversationViewState extends State<ConversationView> {
 
   // Track previous visibility states to detect changes
   bool _prevIsSummaryVisible = false;
-  bool _prevIsFinalizeVisible = false;
-  bool _prevIsFinalizeConfirmed = false;
 
   String _lastVoiceState = "idle";
 
@@ -135,7 +115,7 @@ class _ConversationViewState extends State<ConversationView> {
     
     // Do not show dashboard or steal focus if a popup is active
     final vm = context.read<ConversationViewModel>();
-    if (vm.isVoiceInputActive || vm.isSummaryVisible || vm.isFinalizeVisible || vm.isStorytellingActive) {
+    if (vm.isVoiceInputActive || vm.isSummaryVisible || vm.isStorytellingActive) {
       return;
     }
 
@@ -594,48 +574,6 @@ class _ConversationViewState extends State<ConversationView> {
 
 
 
-  // ── Finalize popup ──────────────────────────────────────────────────
-
-  KeyEventResult _handleCancelFinalizeKeyEvent(FocusNode node, KeyEvent event) {
-
-    if (event is KeyDownEvent) {
-
-      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-
-        _confirmFinalizeButtonFocusNode.requestFocus();
-
-        return KeyEventResult.handled;
-
-      }
-
-    }
-
-    return KeyEventResult.ignored;
-
-  }
-
-
-
-  KeyEventResult _handleConfirmFinalizeKeyEvent(FocusNode node, KeyEvent event) {
-
-    if (event is KeyDownEvent) {
-
-      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-
-        _cancelFinalizeButtonFocusNode.requestFocus();
-
-        return KeyEventResult.handled;
-
-      }
-
-    }
-
-    return KeyEventResult.ignored;
-
-  }
-
-
-
   @override
 
   void initState() {
@@ -657,9 +595,6 @@ class _ConversationViewState extends State<ConversationView> {
 
 
     _closeSummaryButtonFocusNode = FocusNode();
-    _cancelFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleCancelFinalizeKeyEvent);
-    _confirmFinalizeButtonFocusNode = FocusNode(onKeyEvent: _handleConfirmFinalizeKeyEvent);
-    _goToResultButtonFocusNode = FocusNode();
 
     _voiceConfirmFocusNode = FocusNode(onKeyEvent: _handleVoiceConfirmKeyEvent);
     _voiceRetryFocusNode = FocusNode(onKeyEvent: _handleVoiceRetryKeyEvent);
@@ -708,24 +643,6 @@ class _ConversationViewState extends State<ConversationView> {
     _closeSummaryButtonFocusNode.addListener(() {
 
       if (mounted) setState(() => _isCloseSummaryFocused = _closeSummaryButtonFocusNode.hasFocus);
-
-    });
-
-    _cancelFinalizeButtonFocusNode.addListener(() {
-
-      if (mounted) setState(() => _isCancelFinalizeFocused = _cancelFinalizeButtonFocusNode.hasFocus);
-
-    });
-
-    _confirmFinalizeButtonFocusNode.addListener(() {
-
-      if (mounted) setState(() => _isConfirmFinalizeFocused = _confirmFinalizeButtonFocusNode.hasFocus);
-
-    });
-
-    _goToResultButtonFocusNode.addListener(() {
-
-      if (mounted) setState(() => _isGoToResultFocused = _goToResultButtonFocusNode.hasFocus);
 
     });
 
@@ -788,9 +705,6 @@ class _ConversationViewState extends State<ConversationView> {
     _voiceButtonFocusNode.dispose();
     _sendButtonFocusNode.dispose();
     _closeSummaryButtonFocusNode.dispose();
-    _cancelFinalizeButtonFocusNode.dispose();
-    _confirmFinalizeButtonFocusNode.dispose();
-    _goToResultButtonFocusNode.dispose();
     _voiceConfirmFocusNode.dispose();
     _voiceRetryFocusNode.dispose();
     _voiceCancelFocusNode.dispose();
@@ -908,8 +822,10 @@ class _ConversationViewState extends State<ConversationView> {
   Widget build(BuildContext context) {
 
     final vm = context.watch<ConversationViewModel>();
-
     final mainVm = context.read<MainViewModel>();
+    vm.onNavigateToResult = () {
+      mainVm.navigateTo(AppStage.result);
+    };
 
 
 
@@ -946,41 +862,6 @@ class _ConversationViewState extends State<ConversationView> {
     }
 
 
-
-    if (vm.isFinalizeVisible && !_prevIsFinalizeVisible) {
-
-      _prevIsFinalizeVisible = true;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-
-        _confirmFinalizeButtonFocusNode.requestFocus();
-
-      });
-
-    } else if (!vm.isFinalizeVisible && _prevIsFinalizeVisible) {
-
-      _prevIsFinalizeVisible = false;
-
-      _prevIsFinalizeConfirmed = false;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-
-        _muteButtonFocusNode.requestFocus();
-
-      });
-
-    }
-
-
-
-    if (vm.isFinalizeConfirmed && !_prevIsFinalizeConfirmed) {
-
-      _prevIsFinalizeConfirmed = true;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _goToResultButtonFocusNode.requestFocus();
-      });
-    }
 
     if (vm.isStorytellingActive && !_prevIsStorytellingActive) {
       _prevIsStorytellingActive = true;
@@ -1079,14 +960,6 @@ class _ConversationViewState extends State<ConversationView> {
         if (vm.isSummaryVisible) {
 
           vm.closeSummary();
-
-          return;
-
-        }
-
-        if (vm.isFinalizeVisible) {
-
-          vm.cancelFinalize();
 
           return;
 
@@ -1344,7 +1217,7 @@ class _ConversationViewState extends State<ConversationView> {
 
                       child: Focus(
 
-                        descendantsAreFocusable: !vm.isSummaryVisible && !vm.isFinalizeVisible && !vm.isVoiceInputActive && !vm.isStorytellingActive && _isDashboardVisible,
+                        descendantsAreFocusable: !vm.isSummaryVisible && !vm.isVoiceInputActive && !vm.isStorytellingActive && _isDashboardVisible,
 
                         child: Padding(
 
@@ -1967,290 +1840,7 @@ class _ConversationViewState extends State<ConversationView> {
 
  
 
-              // OVERLAY DIALOG: Finalize verification popup
-
-              if (vm.isFinalizeVisible)
-
-                Container(
-
-                  color: Colors.black87,
-
-                  child: Center(
-
-                    child: Container(
-
-                      width: 600.0 * scale,
-
-                      height: 450.0 * scale,
-
-                      padding: EdgeInsets.all(28.0 * scale),
-
-                      decoration: AppStyles.glassDecoration(
-
-                        borderColor: vm.isFinalizeConfirmed ? AppStyles.successColor : AppStyles.errorColor,
-
-                        radius: 16.0 * scale,
-
-                      ),
-
-                      child: Column(
-
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-
-                        children: [
-
-                          Row(
-
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-
-                            children: [
-
-                              Row(
-
-                                children: [
-
-                                  Icon(
-
-                                    vm.isFinalizeConfirmed ? Icons.task_alt : Icons.analytics_outlined,
-
-                                    color: vm.isFinalizeConfirmed ? AppStyles.successColor : AppStyles.errorColor,
-
-                                    size: 28.0 * scale,
-
-                                  ),
-
-                                  SizedBox(width: 12.0 * scale),
-
-                                  Text(
-
-                                    "TÓM TẮT HỘI THOẠI",
-
-                                    style: AppStyles.titleLarge.copyWith(fontSize: 24.0 * scale),
-
-                                  ),
-
-                                ],
-
-                              ),
-
-                              if (!vm.isFinalizeConfirmed)
-
-                                IconButton(
-
-                                  onPressed: () => vm.cancelFinalize(),
-
-                                  icon: Icon(Icons.close, color: AppStyles.textSecondary, size: 24.0 * scale),
-
-                                )
-
-                            ],
-
-                          ),
-
-                          SizedBox(height: 16.0 * scale),
-
-                          Expanded(
-
-                            child: Container(
-
-                              padding: EdgeInsets.all(16.0 * scale),
-
-                              decoration: BoxDecoration(
-
-                                color: Colors.black38,
-
-                                borderRadius: BorderRadius.circular(8.0 * scale),
-
-                                border: Border.all(color: AppStyles.glassCardBorder),
-
-                              ),
-
-                              child: SingleChildScrollView(
-
-                                child: Text(
-
-                                  vm.finalizeResult,
-
-                                  style: AppStyles.bodyMedium.copyWith(fontSize: 14.0 * scale, height: 1.5),
-
-                                ),
-
-                              ),
-
-                            ),
-
-                          ),
-
-                          SizedBox(height: 24.0 * scale),
-
- 
-
-                          if (!vm.isFinalizeConfirmed) ...[
-
-                            // Cancel or Confirm
-
-                            Row(
-
-                              children: [
-
-                                Expanded(
-
-                                  child: SizedBox(
-
-                                    height: 50.0 * scale,
-
-                                    child: OutlinedButton(
-
-                                      focusNode: _cancelFinalizeButtonFocusNode,
-
-                                      onPressed: () => vm.cancelFinalize(),
-
-                                      style: OutlinedButton.styleFrom(
-
-                                        foregroundColor: AppStyles.textPrimary,
-
-                                        side: BorderSide(
-
-                                          color: _isCancelFinalizeFocused ? Colors.white : AppStyles.glassCardBorder,
-
-                                          width: _isCancelFinalizeFocused ? 3.0 * scale : 1.0,
-
-                                        ),
-
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
-
-                                        backgroundColor: _isCancelFinalizeFocused ? AppStyles.glassCardBorder : Colors.transparent,
-
-                                      ),
-
-                                      child: Text(
-
-                                        "HỦY - TIẾP TỤC NÓI CHUYỆN",
-
-                                        style: TextStyle(fontSize: 14.0 * scale, fontWeight: FontWeight.bold),
-
-                                      ),
-
-                                    ),
-
-                                  ),
-
-                                ),
-
-                                SizedBox(width: 16.0 * scale),
-
-                                Expanded(
-
-                                  child: SizedBox(
-
-                                    height: 50.0 * scale,
-
-                                    child: ElevatedButton(
-
-                                      focusNode: _confirmFinalizeButtonFocusNode,
-
-                                      onPressed: () => vm.confirmFinalize(),
-
-                                      style: ElevatedButton.styleFrom(
-
-                                        backgroundColor: _isConfirmFinalizeFocused ? AppStyles.successColor : AppStyles.successColor.withValues(alpha: 0.7),
-
-                                        foregroundColor: AppStyles.backgroundEnd,
-
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
-
-                                        side: _isConfirmFinalizeFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
-
-                                        elevation: _isConfirmFinalizeFocused ? 12.0 : 0.0,
-
-                                      ),
-
-                                      child: Text(
-
-                                        "XÁC NHẬN KẾT THÚC",
-
-                                        style: TextStyle(fontSize: 14.0 * scale, fontWeight: FontWeight.bold),
-
-                                      ),
-
-                                    ),
-
-                                  ),
-
-                                ),
-
-                              ],
-
-                            ),
-
-                          ] else ...[
-
-                            // Go to result screen
-
-                            SizedBox(
-
-                              height: 50.0 * scale,
-
-                              child: ElevatedButton(
-
-                                focusNode: _goToResultButtonFocusNode,
-
-                                onPressed: () {
-
-                                  vm.navigateToResult(() {
-
-                                    mainVm.navigateTo(AppStage.result);
-
-                                  });
-
-                                },
-
-                                style: ElevatedButton.styleFrom(
-
-                                  backgroundColor: _isGoToResultFocused ? AppStyles.primaryAccent : AppStyles.primaryAccent.withValues(alpha: 0.7),
-
-                                  foregroundColor: AppStyles.backgroundEnd,
-
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0 * scale)),
-
-                                  side: _isGoToResultFocused ? BorderSide(color: Colors.white, width: 3.0 * scale) : null,
-
-                                  elevation: _isGoToResultFocused ? 12.0 : 0.0,
-
-                                ),
-
-                                child: Text(
-
-                                  "ĐI ĐẾN TRANG KẾT QUẢ",
-
-                                  style: AppStyles.bodyLarge.copyWith(
-
-                                    fontSize: 16.0 * scale,
-
-                                    fontWeight: FontWeight.bold,
-
-                                  ),
-
-                                ),
-
-                              ),
-
-                            ),
-
-                          ]
-
-                        ],
-
-                      ),
-
-                    ),
-
-                  ),
-
-                ),
-
               // OVERLAY DIALOG: Voice Input Dialog (persistent - stays open until user confirms or retries)
-
               if (vm.isVoiceInputActive)
 
                 FocusScope(

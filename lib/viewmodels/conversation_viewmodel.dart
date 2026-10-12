@@ -29,6 +29,8 @@ class ConversationViewModel extends ChangeNotifier {
   String _finalizeResult = "";
   bool _isFinalizeVisible = false;
   bool _isFinalizeConfirmed = false;
+  bool _isFinalizing = false;
+  VoidCallback? onNavigateToResult;
 
   bool _isVoiceInputActive = false;
   String _voiceInputStatus = "";
@@ -323,24 +325,32 @@ class ConversationViewModel extends ChangeNotifier {
         }
         // Tự động kích hoạt popup Kể tự do CHỈ KHI AI đã đọc đến đoạn kết thúc câu mời: "con sẽ ghi nhận hết ạ"
         if (vm.speaker == 'Trạm Lắng Nghe' &&
-            (newText.toLowerCase().contains("con sẽ ghi nhận hết") ||
-             newText.toLowerCase().contains("ghi nhận hết ạ")) &&
+            (
+                newText.toLowerCase().contains("con sẽ ghi nhận hết") ||
+                newText.toLowerCase().contains("ghi nhận hết ạ") ||
+                newText.toLowerCase().contains("kể tường tận cho con nghe")) &&
             !_isStorytellingActive) {
           LogService.log("[ConversationVM] Detected final invitation phrase ('con sẽ ghi nhận hết') -> Auto starting startStorytellingPhase");
           startStorytellingPhase();
         }
 
-        // Tự động kích hoạt nút "Kết thúc hội thoại" (Finalize) khi AI nói câu kết thúc
+        // Tự động kích hoạt nút "Kết thúc hội thoại" (Finalize) khi AI nói câu kết thúc hoặc TẦNG BẢO VỆ được kích hoạt
+        final bool isCompletionPhrase = newText.contains("Con sẽ gửi hồ sơ này");
+        final String lower = newText.toLowerCase();
+        final bool isGuardLayerTriggered = lower.contains("tạm dừng và đóng ca") ||
+            lower.contains("đóng ca hỗ trợ") ||
+            lower.contains("chưa có chức năng tư vấn tâm lý") ||
+            lower.contains("tư vấn tâm lý chuyên sâu") ||
+            lower.contains("tạm dừng cuộc gọi");
+
         if (vm.speaker == 'Trạm Lắng Nghe' &&
-            newText.contains("Con sẽ gửi hồ sơ này") &&
-            !_isFinalizeVisible &&
-            !_isFinalizeConfirmed) {
-          LogService.log("[ConversationVM] Detected completion phrase -> Auto triggering showFinalizeAsync");
+            (isCompletionPhrase || isGuardLayerTriggered) &&
+            !_isFinalizing) {
+          _isFinalizing = true;
+          LogService.log("[ConversationVM] Detected completion or guard layer phrase -> Auto triggering showFinalizeAsync");
           Future.delayed(const Duration(seconds: 2), () {
-            if (!_isFinalizeVisible && !_isFinalizeConfirmed) {
-              SpeechService.sendAnimationFace("SILIENCE");
-              showFinalizeAsync();
-            }
+            SpeechService.sendAnimationFace("SILIENCE");
+            showFinalizeAsync();
           });
         }
       }
@@ -526,13 +536,14 @@ class ConversationViewModel extends ChangeNotifier {
     startVoiceInputAsync();
   }
 
-  Future<void> showFinalizeAsync() async {
-    _isProcessing = true;
+  Future<void> showFinalizeAsync({VoidCallback? onNavigation}) async {
+    _isFinalizing = true;
+    _isProcessing = false;
+    _isFinalizeVisible = false;
     _isFinalizeConfirmed = false;
-    _finalizeResult = "Đang kiểm tra thông tin, vui lòng chờ...";
-    _isFinalizeVisible = true;
 
-    // Ngắt cuộc gọi Vapi và micro ngay khi bắt đầu kết thúc hội thoại
+    // Ngắt âm thanh và cuộc gọi Vapi ngay khi kết thúc hội thoại
+    _speechService.stop();
     if (flagVAPI) {
       _vapiTranscriptDebounce?.cancel();
       _vapiService.stopCall();
@@ -540,87 +551,31 @@ class ConversationViewModel extends ChangeNotifier {
       _vapiStateSub?.cancel();
     }
 
+    _llmService.lastConversationHistory = List.from(_messages);
     notifyListeners();
 
-    final response = await _llmService.getFinalizeAIAsync(_messages);
-    _finalizeResult = response;
-
-    // Parse amount from text
-    final double extracted = _extractAmount(response);
-    _llmService.proposedAmount = extracted;
-    debugPrint("[CONVERSE] AI Response: $response");
-    debugPrint("[CONVERSE] Extracted ProposedAmount: $extracted");
-
-    _isProcessing = false;
-    notifyListeners();
-  }
-
-  double _extractAmount(String text) {
-    try {
-      // Normalize
-      String lowerText = text.toLowerCase().replaceAll(" ", "");
-
-      // 1. Check for "triệu" (Million)
-      final trieuMatch = RegExp(r'([\d\.,]+)triệu').firstMatch(lowerText);
-      if (trieuMatch != null) {
-        String valStr = trieuMatch.group(1)!.replaceAll(',', '.');
-        double? val = double.tryParse(valStr);
-        if (val != null) {
-          return val * 1000000.0;
-        }
-      }
-
-      // 2. Check for "ngàn/nghìn/k" (Thousand)
-      final nganMatch = RegExp(r'([\d\.,]+)(ngàn|nghìn|k)').firstMatch(lowerText);
-      if (nganMatch != null) {
-        String valStr = nganMatch.group(1)!.replaceAll(',', '.');
-        double? val = double.tryParse(valStr);
-        if (val != null) {
-          return val * 1000.0;
-        }
-      }
-
-      // 3. Check for raw large numbers
-      final rawMatches = RegExp(r'[\d\.,]{4,}').allMatches(text);
-      for (var m in rawMatches) {
-        String clean = m.group(0)!.replaceAll('.', '').replaceAll(',', '');
-        double? val = double.tryParse(clean);
-        if (val != null && val >= 10000) {
-          return val;
-        }
-      }
-    } catch (ex) {
-      debugPrint("[DEBUG] ExtractAmount Error: $ex");
+    // Tự động chuyển qua ResultView sau khi kết thúc / chuẩn bị dữ liệu
+    if (onNavigation != null) {
+      onNavigation();
+    } else {
+      onNavigateToResult?.call();
     }
-    return 0.0;
   }
 
   void confirmFinalize() {
-    _finalizeResult = _llmService.finalizeConfirmMessage;
     _isFinalizeConfirmed = true;
+    _isFinalizeVisible = false;
     notifyListeners();
   }
 
   void cancelFinalize() {
+    _isFinalizing = false;
     _isFinalizeVisible = false;
     notifyListeners();
   }
 
   void navigateToResult(VoidCallback onNavigation) {
-    _llmService.lastConversationHistory = List.from(_messages);
-    _isFinalizeVisible = false;
-    _speechService.stop();
-
-    // Tắt Vapi hoàn toàn khi rời khỏi ConversationView chuyển sang ResultView
-    if (flagVAPI) {
-      _vapiTranscriptDebounce?.cancel();
-      _vapiService.stopCall();
-      _vapiTranscriptSub?.cancel();
-      _vapiStateSub?.cancel();
-    }
-
-    notifyListeners();
-    onNavigation();
+    showFinalizeAsync(onNavigation: onNavigation);
   }
 
   Future<void> showSummaryAsync() async {
@@ -677,6 +632,7 @@ class ConversationViewModel extends ChangeNotifier {
     _finalizeResult = "";
     _isFinalizeVisible = false;
     _isFinalizeConfirmed = false;
+    _isFinalizing = false;
     _isSummaryVisible = false;
     _scoringResult = null;
     _currentSessionName = null;

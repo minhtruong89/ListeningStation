@@ -13,7 +13,6 @@ abstract class ILLMService {
   Future<String> getSummaryAsync(List<ConversationMessage> history);
   Future<String> getSummaryAIAsync(List<ConversationMessage> history);
   Future<List<ConversationMessage>> getDemoMessagesAsync();
-  Future<String> getFinalizeAIAsync(List<ConversationMessage> history);
   Future<String> getDistressScoreAIAsync(List<ConversationMessage> history);
   Future<String> transcribeAudioAsync(String filePath);
 
@@ -35,7 +34,6 @@ abstract class ILLMService {
   bool get flagOperatorExact;
   set flagOperatorExact(bool value);
 
-  String get finalizeConfirmMessage;
   String get systemPrompt;
   set systemPrompt(String value);
 }
@@ -45,13 +43,11 @@ class LLMService implements ILLMService {
   final String _baseUrl = "https://api.openai.com/v1/chat/completions";
 
   String? _apiKey;
-  String _finalizePrompt = "";
   String _conversationPrompt = "You are a helpful assistant. Conduct a friendly interview.";
   // ignore: unused_field
   String _mannerOfSpeechPrompt = "Speak gently and kindly.";
   // ignore: unused_field
   String _conversationFormat = "";
-  String _finalizeConfirmMessage = "";
   String _distressScoringPrompt = "";
 
   List<ConversationMessage> _lastConversationHistory = [];
@@ -102,9 +98,6 @@ class LLMService implements ILLMService {
   set flagOperatorExact(bool value) => _flagOperatorExact = value;
 
   @override
-  String get finalizeConfirmMessage => _finalizeConfirmMessage;
-
-  @override
   String get systemPrompt => _conversationPrompt;
 
   @override
@@ -124,8 +117,6 @@ class LLMService implements ILLMService {
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_conversation.json", "llm_conversation.json");
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_manner_of_speech.json", "llm_manner_of_speech.json");
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_conversation_demo.json", "llm_conversation_demo.json");
-    await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_conversation_result.json", "llm_conversation_result.json");
-    await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_conversation_result_confirm.json", "llm_conversation_result_confirm.json");
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/llm_distress_scoring.json", "llm_distress_scoring.json");
     await _syncFileAsync("http://data.soncamedia.com/firmware/smartbox/listeningStation/rule_engine.json", "rule_engine.json");
 
@@ -211,12 +202,6 @@ class LLMService implements ILLMService {
       // 4. Load other configuration JSON texts
       final demoFile = getSafeFile("llm_conversation_demo.json");
       if (demoFile.existsSync()) _conversationFormat = demoFile.readAsStringSync();
-
-      final resultFile = getSafeFile("llm_conversation_result.json");
-      if (resultFile.existsSync()) _finalizePrompt = resultFile.readAsStringSync();
-
-      final confirmFile = getSafeFile("llm_conversation_result_confirm.json");
-      if (confirmFile.existsSync()) _finalizeConfirmMessage = confirmFile.readAsStringSync();
 
       final distressFile = getSafeFile("llm_distress_scoring.json");
       if (distressFile.existsSync()) _distressScoringPrompt = distressFile.readAsStringSync();
@@ -486,49 +471,6 @@ class LLMService implements ILLMService {
       debugPrint("Error creating demo messages: \$ex");
     }
     return demoMessages;
-  }
-
-  @override
-  Future<String> getFinalizeAIAsync(List<ConversationMessage> history) async {
-    if (_apiKey == null || _apiKey!.isEmpty) return "Lỗi: Chưa cấu hình OpenAI API Key.";
-
-    try {
-      final messages = [
-        {"role": "system", "content": _finalizePrompt}
-      ];
-
-      for (var msg in history) {
-        messages.add({
-          "role": msg.sender == "Người cần giúp đỡ" || msg.sender == "Patient" ? "user" : "assistant",
-          "content": msg.content
-        });
-      }
-
-      // Add the explicit finalize command
-      messages.add({"role": "user", "content": "Kiểm tra thông tin"});
-
-      final requestBody = {
-        "model": "gpt-4o",
-        "messages": messages,
-      };
-
-      final response = await _httpClient.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          "Authorization": "Bearer $_apiKey",
-          "Content-Type": "application/json",
-        },
-        body: jsonEncode(requestBody),
-      );
-
-      if (response.statusCode != 200) return "Lỗi API: ${response.statusCode}";
-
-      final doc = jsonDecode(response.body);
-      final reply = doc['choices'][0]['message']['content']?.toString();
-      return reply ?? "Không thể xác nhận kết thúc.";
-    } catch (ex) {
-      return "Lỗi: $ex";
-    }
   }
 
   @override

@@ -8,12 +8,15 @@ import androidx.lifecycle.Lifecycle
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.util.Log
 
@@ -59,6 +62,99 @@ class VapiNativeBridge(
         }
     }
 
+    fun syncVoiceCallVolumeToMusic() {
+        try {
+            val musicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val maxVoice = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+
+            // Kiểm tra trạng thái MUTE của STREAM_MUSIC
+            val isMusicMuted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                } catch (e: Exception) {
+                    musicVol <= 0
+                }
+            } else {
+                musicVol <= 0
+            }
+
+            if (musicVol <= 0 || isMusicMuted) {
+                // Mức 0 (hoặc khi hệ thống bấm MUTE): TẮT TIẾNG HOÀN TOÀN (DEAD SILENT)
+                Log.d("VapiNativeBridge", "syncVoiceCallVolumeToMusic: musicVol=$musicVol, isMusicMuted=$isMusicMuted -> SILENCE / MUTE voice call")
+
+                // 1. Tắt đường phát loa ngoài (ngắt phần cứng loa ngoài)
+                try {
+                    audioManager.isSpeakerphoneOn = false
+                } catch (e: Exception) {
+                    Log.w("VapiNativeBridge", "Cannot set isSpeakerphoneOn=false: $e")
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        audioManager.clearCommunicationDevice()
+                    } catch (e: Exception) {}
+                }
+
+                // 2. Kích hoạt cờ MUTE cho STREAM_VOICE_CALL
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_MUTE, 0)
+                    } catch (e: Exception) {
+                        Log.w("VapiNativeBridge", "Cannot adjustStreamVolume MUTE: $e")
+                    }
+                }
+
+                // TUYỆT ĐỐI KHÔNG gọi setStreamVolume(STREAM_VOICE_CALL, 0) ở đây vì Android AudioPolicy 
+                // sẽ tự động clamp 0 lên index 1 (mIndexMin) và xóa cờ mute, khiến loa vẫn phát tiếng ở mức 1.
+            } else {
+                // Âm lượng > 0: BẬT TIẾNG TRỞ LẠI
+                // 1. Mở lại loa ngoài
+                try {
+                    audioManager.isSpeakerphoneOn = true
+                } catch (e: Exception) {
+                    Log.w("VapiNativeBridge", "Cannot set isSpeakerphoneOn=true: $e")
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        val speaker = audioManager.availableCommunicationDevices.find {
+                            it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                        }
+                        if (speaker != null) {
+                            audioManager.setCommunicationDevice(speaker)
+                        }
+                    } catch (e: Exception) {}
+                }
+
+                // 2. Bỏ cờ MUTE
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_UNMUTE, 0)
+                    } catch (e: Exception) {
+                        Log.w("VapiNativeBridge", "Cannot adjustStreamVolume UNMUTE: $e")
+                    }
+                }
+
+                // 3. Đặt mức âm lượng tương ứng [minAudibleVoice .. maxVoice]
+                val minAudibleVoice = if (maxVoice >= 3) 2 else 1
+                val targetVoiceVol = if (maxMusic > 1 && maxVoice > minAudibleVoice) {
+                    val fraction = (musicVol - 1).toFloat() / (maxMusic - 1).toFloat()
+                    minAudibleVoice + Math.round(fraction * (maxVoice - minAudibleVoice).toFloat()).toInt()
+                } else {
+                    minAudibleVoice
+                }
+
+                val finalVoiceVol = Math.max(minAudibleVoice, Math.min(targetVoiceVol, maxVoice))
+
+                Log.d("VapiNativeBridge", "syncVoiceCallVolumeToMusic: musicVol=$musicVol/$maxMusic -> finalVoiceVol=$finalVoiceVol/$maxVoice (minAudible=$minAudibleVoice, speakerOn=true)")
+                audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, finalVoiceVol, 0)
+            }
+        } catch (e: Exception) {
+            Log.e("VapiNativeBridge", "Error syncing voice call volume: $e")
+        }
+    }
+
     private fun handleVapiEvent(event: Vapi.Event) {
         val sink = eventSink
         if (sink == null) {
@@ -68,6 +164,16 @@ class VapiNativeBridge(
         scope.launch(Dispatchers.Main) {
             when (event) {
                 is Vapi.Event.CallDidStart -> {
+                    Log.d("VapiNativeBridge", "CallDidStart received -> Syncing voice call volume to music volume")
+                    syncVoiceCallVolumeToMusic()
+                    // WebRTC audio session có thể can thiệp lại volume sau khi kết nối,
+                    // re-sync sau 500ms và 1500ms để đảm bảo giữ đúng mức âm lượng
+                    scope.launch {
+                        delay(500)
+                        syncVoiceCallVolumeToMusic()
+                        delay(1000)
+                        syncVoiceCallVolumeToMusic()
+                    }
                     val data = mapOf("event" to "callDidStart")
                     sink.success(data)
                 }
@@ -214,10 +320,13 @@ class VapiNativeBridge(
                             return@launch
                         }
 
-                        Log.d("VapiNativeBridge", "Starting Vapi call with assistantId: $assistantId")
+                        Log.d("VapiNativeBridge", "Starting Vapi call with assistantId: $assistantId (100% Vapi Dashboard setup)")
+                        syncVoiceCallVolumeToMusic()
+
                         val res = client.start(assistantId = assistantId)
                         res.onSuccess {
                             Log.d("VapiNativeBridge", "client.start successful")
+                            syncVoiceCallVolumeToMusic()
                             result.success(true)
                         }.onFailure { error ->
                             Log.e("VapiNativeBridge", "client.start failed: ${error.message}")
@@ -237,6 +346,16 @@ class VapiNativeBridge(
                     Log.e("VapiNativeBridge", "Error stopping vapi: $e")
                 }
                 vapiClient = null
+                try {
+                    audioManager.mode = AudioManager.MODE_NORMAL
+                } catch (e: Exception) {
+                    Log.w("VapiNativeBridge", "Error resetting audioManager mode: $e")
+                }
+                result.success(true)
+            }
+            "syncVolume" -> {
+                Log.d("VapiNativeBridge", "syncVolume requested from Flutter")
+                syncVoiceCallVolumeToMusic()
                 result.success(true)
             }
             "sendMessage" -> {
@@ -280,7 +399,16 @@ class VapiNativeBridge(
     }
 
     fun cleanUp() {
-        vapiClient?.stop()
+        try {
+            vapiClient?.stop()
+        } catch (e: Exception) {
+            Log.e("VapiNativeBridge", "Error stopping vapi in cleanUp: $e")
+        }
         vapiClient = null
+        try {
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } catch (e: Exception) {
+            Log.w("VapiNativeBridge", "Error resetting audioManager mode in cleanUp: $e")
+        }
     }
 }

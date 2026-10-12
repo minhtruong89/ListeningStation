@@ -1683,9 +1683,9 @@ class _ConversationViewState extends State<ConversationView> {
 
  
 
-              // OVERLAY DIALOG: Giai đoạn kể tự do (3 phút)
+              // FLOATING BANNER: Giai đoạn kể tự do (không che khuất màn hình hội thoại)
               if (vm.isStorytellingActive)
-                _buildStorytellingDialog(scale, vm),
+                _buildStorytellingBanner(scale, vm),
 
               // OVERLAY DIALOG: Summary details popup
               if (vm.isSummaryVisible)
@@ -1892,195 +1892,93 @@ class _ConversationViewState extends State<ConversationView> {
 );
   }
 
-  Widget _buildStorytellingDialog(double scale, ConversationViewModel vm) {
-    final List<Map<String, String>> guideItems = [
-      {
-        "num": "①",
-        "title": "THÔNG TIN CÁ NHÂN",
-        "desc": "Tên, tuổi, quê quán, người ở cùng, công việc mưu sinh",
-      },
-      {
-        "num": "②",
-        "title": "HOÀN CẢNH KHÓ KHĂN",
-        "desc": "Khó khăn cụ thể, bắt đầu từ khi nào, điều lo lắng nhất",
-      },
-      {
-        "num": "③",
-        "title": "TÌNH TRẠNG SỨC KHỎE",
-        "desc": "Bệnh tật, chẩn đoán của bác sĩ, chi phí cần điều trị gấp",
-      },
-      {
-        "num": "④",
-        "title": "THU NHẬP & KINH TẾ",
-        "desc": "Thu nhập mỗi tháng, tiền còn lại sau chi tiêu, nợ nần",
-      },
-      {
-        "num": "⑤",
-        "title": "GIA ĐÌNH & NGƯỜI PHỤ THUỘC",
-        "desc": "Số người trong nhà, người cần nuôi dưỡng, ai có thể hỗ trợ",
-      },
-      {
-        "num": "⑥",
-        "title": "MỨC ĐỘ KHẨN CẤP",
-        "desc": "Cần giúp trong bao lâu, tiền ăn uống và chỗ ở hiện tại",
-      },
-    ];
-
-    return Container(
-      color: Colors.black87,
-      child: Center(
+  Widget _buildStorytellingBanner(double scale, ConversationViewModel vm) {
+    return Positioned(
+      top: 76.0 * scale,
+      right: 24.0 * scale,
+      child: Material(
+        color: Colors.transparent,
         child: Container(
-          width: 680.0 * scale,
-          height: 520.0 * scale,
-          padding: EdgeInsets.all(24.0 * scale),
-          decoration: AppStyles.glassDecoration(
-            borderColor: AppStyles.primaryAccent,
-            radius: 18.0 * scale,
+          padding: EdgeInsets.symmetric(horizontal: 16.0 * scale, vertical: 10.0 * scale),
+          decoration: BoxDecoration(
+            color: const Color(0xF0132238), // Nền xanh đen mờ sang trọng, nhìn rõ
+            borderRadius: BorderRadius.circular(16.0 * scale),
+            border: Border.all(color: AppStyles.primaryAccent, width: 1.5 * scale),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 12.0 * scale,
+                offset: Offset(0, 4.0 * scale),
+              ),
+            ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Header Row: Title + Countdown Timer Badge
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Icon(Icons.mic, color: AppStyles.primaryAccent, size: 24.0 * scale),
+              SizedBox(width: 10.0 * scale),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.record_voice_over, color: AppStyles.primaryAccent, size: 28.0 * scale),
-                      SizedBox(width: 10.0 * scale),
+                      Container(
+                        width: 8.0 * scale,
+                        height: 8.0 * scale,
+                        decoration: const BoxDecoration(
+                          color: Colors.redAccent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      SizedBox(width: 6.0 * scale),
                       Text(
-                        "GIAI ĐOẠN KỂ TỰ DO",
-                        style: AppStyles.titleLarge.copyWith(
-                          fontSize: 21.0 * scale,
+                        "Đang lắng nghe cô/bác kể chuyện...",
+                        style: TextStyle(
+                          fontSize: 12.5 * scale,
                           fontWeight: FontWeight.bold,
                           color: AppStyles.primaryAccent,
-                          letterSpacing: 1.1,
                         ),
                       ),
                     ],
                   ),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 6.0 * scale),
-                    decoration: BoxDecoration(
-                      color: AppStyles.primaryAccent.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(20.0 * scale),
-                      border: Border.all(color: AppStyles.primaryAccent, width: 1.5 * scale),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.timer, color: AppStyles.primaryAccent, size: 20.0 * scale),
-                        SizedBox(width: 6.0 * scale),
-                        Text(
-                          vm.storytellingFormattedTime,
-                          style: TextStyle(
-                            fontSize: 18.0 * scale,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ],
+                  SizedBox(height: 2.0 * scale),
+                  Text(
+                    "Thời gian còn lại: ${vm.storytellingFormattedTime}",
+                    style: TextStyle(
+                      fontSize: 13.5 * scale,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 10.0 * scale),
-              Text(
-                "Cô/bác cứ thoải mái chia sẻ chi tiết hoàn cảnh của mình. Trạm Lắng Nghe đang ghi nhận:",
-                style: AppStyles.bodyMedium.copyWith(
-                  fontSize: 13.5 * scale,
-                  color: AppStyles.textSecondary,
-                ),
-              ),
-              SizedBox(height: 12.0 * scale),
-
-              // 6 Summary Guidance Items
-              Expanded(
-                child: Container(
-                  padding: EdgeInsets.all(12.0 * scale),
-                  decoration: BoxDecoration(
-                    color: Colors.black45,
-                    borderRadius: BorderRadius.circular(12.0 * scale),
-                    border: Border.all(color: AppStyles.glassCardBorder),
-                  ),
-                  child: ListView.separated(
-                    itemCount: guideItems.length,
-                    separatorBuilder: (context, index) => Divider(color: Colors.white12, height: 8.0 * scale),
-                    itemBuilder: (context, index) {
-                      final item = guideItems[index];
-                      return Padding(
-                        padding: EdgeInsets.symmetric(vertical: 2.0 * scale),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "– ${item["num"]}",
-                              style: TextStyle(
-                                fontSize: 13.5 * scale,
-                                fontWeight: FontWeight.bold,
-                                color: AppStyles.primaryAccent,
-                              ),
-                            ),
-                            SizedBox(width: 8.0 * scale),
-                            Expanded(
-                              child: RichText(
-                                text: TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: "${item["title"]}: ",
-                                      style: TextStyle(
-                                        fontSize: 13.5 * scale,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: item["desc"],
-                                      style: TextStyle(
-                                        fontSize: 12.5 * scale,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+              SizedBox(width: 16.0 * scale),
+              ElevatedButton.icon(
+                focusNode: _storytellingFinishFocusNode,
+                onPressed: () => vm.stopStorytellingPhase(),
+                icon: Icon(Icons.check_circle_outline, size: 18.0 * scale),
+                label: Text(
+                  "TÔI ĐÃ KỂ XONG",
+                  style: TextStyle(
+                    fontSize: 13.0 * scale,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.6,
                   ),
                 ),
-              ),
-              SizedBox(height: 14.0 * scale),
-
-              // Action Button: Done Telling Early
-              SizedBox(
-                height: 46.0 * scale,
-                child: ElevatedButton.icon(
-                  focusNode: _storytellingFinishFocusNode,
-                  onPressed: () => vm.stopStorytellingPhase(),
-                  icon: Icon(Icons.check_circle_outline, size: 20.0 * scale),
-                  label: Text(
-                    "CON ĐÃ KỂ XONG (TIẾP TỤC)",
-                    style: TextStyle(
-                      fontSize: 14.0 * scale,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isStorytellingFinishFocused
-                        ? AppStyles.primaryAccent
-                        : AppStyles.primaryAccent.withValues(alpha: 0.75),
-                    foregroundColor: AppStyles.backgroundEnd,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
-                    side: _isStorytellingFinishFocused
-                        ? BorderSide(color: Colors.white, width: 3.0 * scale)
-                        : null,
-                    elevation: _isStorytellingFinishFocused ? 8 : 2,
-                  ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isStorytellingFinishFocused
+                      ? AppStyles.primaryAccent
+                      : AppStyles.primaryAccent.withValues(alpha: 0.85),
+                  foregroundColor: AppStyles.backgroundEnd,
+                  padding: EdgeInsets.symmetric(horizontal: 14.0 * scale, vertical: 10.0 * scale),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0 * scale)),
+                  side: _isStorytellingFinishFocused
+                      ? BorderSide(color: Colors.white, width: 2.5 * scale)
+                      : null,
+                  elevation: _isStorytellingFinishFocused ? 8.0 : 2.0,
                 ),
               ),
             ],

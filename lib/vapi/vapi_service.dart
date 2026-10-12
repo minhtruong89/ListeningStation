@@ -153,6 +153,14 @@ class VapiService {
     }
   }
 
+  Future<void> syncVolume() async {
+    try {
+      await _methodChannel.invokeMethod('syncVolume');
+    } catch (e) {
+      debugPrint("[VapiService] Error syncing volume: $e");
+    }
+  }
+
   Future<bool> sendMessage(String message) async {
     try {
       LogService.log("[VapiService] Sending message: $message");

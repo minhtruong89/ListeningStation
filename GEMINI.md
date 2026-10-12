@@ -2,16 +2,16 @@
 
 ## Project: ListeningStation (Trạm Lắng Nghe - Quỹ Bông Sen)
 
-### 1. Autonomy & Execution Mode
-- **Full Autonomous Permissions**: Antigravity is granted full permissions to inspect, create, edit, and delete files within the project workspace.
-- **Auto-Execution of Routine Tools**: Terminal commands (Flutter, Dart, Git, PowerShell, Python, build tools) are authorized to execute automatically without requiring interactive confirmation for routine actions, debugging, testing, and direct code edits.
-- **File & Network Access**: File access within the workspace and necessary internet/API access (e.g. Gemini API, pub.dev packages) are fully permitted.
+### 1. Autonomy & Execution Mode (Toàn Quyền Tự Chủ)
+- **Full Autonomous Execution (Toàn quyền tự làm)**: Antigravity được cấp toàn quyền tự chủ từ A-Z. Tự động kiểm tra file, tạo/sửa/xóa code, chạy terminal (Flutter, Dart, Git, PowerShell, Python, analyze, test...), tự fix lỗi/debug và hoàn thiện nhiệm vụ mà KHÔNG ĐƯỢC hỏi bất kỳ điều gì trong quá trình thực thi.
+- **TUYỆT ĐỐI KHÔNG hỏi trong quá trình thực thi**: Không dùng tool `ask_question` và không dừng lại giữa chừng để hỏi ý kiến/xin xác nhận cho các bước thực thi, sửa lỗi hoặc kiểm tra.
+- **NGOẠI LỆ DUY NHẤT - LÚC TRÌNH BÀY PLAN**: Điểm dừng và hỏi DUY NHẤT là khi vừa lập Plan / Implementation Plan ban đầu. Sau khi người dùng duyệt Plan (hoặc bấm Proceed/đồng ý), Antigravity phải tự động làm một mạch đến khi xong 100% mới báo cáo.
 
-### 2. Planning & User Confirmation (BẮT BUỘC)
-- **Hỏi trước khi thực thi Plan**: Đối với mọi tác vụ cần lên kế hoạch (tính năng mới, tái cấu trúc logic/kiến trúc quan trọng, luồng xử lý mới, hoặc khi người dùng yêu cầu lập plan):
-  - Antigravity phải trình bày kế hoạch (Plan / Implementation Plan) rõ ràng, chi tiết các bước.
-  - **DỪNG LẠI và hỏi ý kiến người dùng** trước khi tiến hành thực thi (nếu tạo plan artifact thì luôn đặt `RequestFeedback: true`).
-  - **KHÔNG tự ý thực thi các bước trong plan** cho đến khi người dùng xác nhận, duyệt kế hoạch hoặc gửi phản hồi đồng ý tiếp tục.
+### 2. Planning & User Confirmation
+- **Chỉ hỏi duyệt Plan ban đầu**: Đối với các tác vụ lớn cần lên kế hoạch (tính năng mới, tái cấu trúc logic/kiến trúc quan trọng, luồng xử lý mới, hoặc khi người dùng yêu cầu lập plan):
+  - Trình bày kế hoạch rõ ràng (tạo plan artifact với `RequestFeedback: true`).
+  - Dừng lại để người dùng xem và duyệt kế hoạch.
+  - **Ngay khi kế hoạch được duyệt**: Chuyển ngay sang chế độ tự chủ 100% (Full Autonomous Execution), tự động thực thi tất cả các bước trong plan, tự xử lý phát sinh, tuyệt đối không hỏi thêm bất kỳ câu nào cho đến khi hoàn tất toàn bộ.
 
 ### 3. Development Guidelines
 - Always maintain code stability and preserve existing comments, styles, and architecture.

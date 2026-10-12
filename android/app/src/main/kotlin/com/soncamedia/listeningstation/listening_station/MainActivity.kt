@@ -13,6 +13,8 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.database.ContentObserver
+import android.provider.Settings
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
@@ -67,6 +69,27 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private val volumeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            if ("android.media.VOLUME_CHANGED_ACTION" == action ||
+                "android.media.STREAM_MUTE_CHANGED_ACTION" == action ||
+                AudioManager.RINGER_MODE_CHANGED_ACTION == action) {
+                val streamType = intent?.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) ?: -1
+                if (streamType == AudioManager.STREAM_MUSIC || streamType == -1 || action != "android.media.VOLUME_CHANGED_ACTION") {
+                    vapiBridge?.syncVoiceCallVolumeToMusic()
+                }
+            }
+        }
+    }
+
+    private val volumeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            super.onChange(selfChange)
+            vapiBridge?.syncVoiceCallVolumeToMusic()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -93,6 +116,32 @@ class MainActivity : FlutterActivity() {
         } else {
             registerReceiver(usbReceiver, filter)
         }
+
+        val volumeFilter = IntentFilter().apply {
+            addAction("android.media.VOLUME_CHANGED_ACTION")
+            addAction("android.media.STREAM_MUTE_CHANGED_ACTION")
+            addAction(AudioManager.RINGER_MODE_CHANGED_ACTION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(volumeReceiver, volumeFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(volumeReceiver, volumeFilter)
+        }
+
+        try {
+            contentResolver.registerContentObserver(
+                Settings.System.CONTENT_URI,
+                true,
+                volumeObserver
+            )
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error registering volumeObserver: $e")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        vapiBridge?.syncVoiceCallVolumeToMusic()
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
@@ -100,18 +149,43 @@ class MainActivity : FlutterActivity() {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val direction = if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
             
-            // Điều chỉnh cả STREAM_MUSIC và STREAM_VOICE_CALL cùng lúc
+            // Điều chỉnh STREAM_MUSIC (hiển thị giao diện âm lượng hệ thống)
             audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-            audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, direction, 0)
+            // Đồng bộ trực tiếp sang STREAM_VOICE_CALL theo đúng tỷ lệ
+            vapiBridge?.syncVoiceCallVolumeToMusic()
+            // Sau 50ms, 150ms và 300ms kiểm tra lại một lần nữa để bắt kịp sự thay đổi bất đồng bộ của hệ thống
+            Handler(Looper.getMainLooper()).postDelayed({
+                vapiBridge?.syncVoiceCallVolumeToMusic()
+            }, 50)
+            Handler(Looper.getMainLooper()).postDelayed({
+                vapiBridge?.syncVoiceCallVolumeToMusic()
+            }, 150)
+            Handler(Looper.getMainLooper()).postDelayed({
+                vapiBridge?.syncVoiceCallVolumeToMusic()
+            }, 300)
             return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(volumeReceiver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error unregistering volumeReceiver: $e")
+        }
+        try {
+            contentResolver.unregisterContentObserver(volumeObserver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error unregistering volumeObserver: $e")
+        }
         vapiBridge?.cleanUp()
         closeActiveUartConnection()
-        unregisterReceiver(usbReceiver)
+        try {
+            unregisterReceiver(usbReceiver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error unregistering usbReceiver: $e")
+        }
         super.onDestroy()
     }
 
@@ -119,6 +193,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         val bridge = VapiNativeBridge(applicationContext, lifecycle)
         vapiBridge = bridge
+        bridge.syncVoiceCallVolumeToMusic()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VAPI_METHOD_CHANNEL).setMethodCallHandler(bridge)
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, VAPI_EVENT_CHANNEL).setStreamHandler(bridge)
 

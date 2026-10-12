@@ -241,15 +241,20 @@ class ConversationViewModel extends ChangeNotifier {
         }
         if (_isStorytellingActive &&
             _storytellingStartTime != null &&
-            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 10) {
+            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 3) {
           for (var vm in vapiMessages) {
             if (vm.speaker != 'Trạm Lắng Nghe') {
               final lower = vm.text.toLowerCase();
               if (lower.contains("tôi đã kể xong") ||
+                  lower.contains("đã xong") ||
                   lower.contains("đã kể xong") ||
+                  lower.contains("tôi kể xong rồi") ||
                   lower.contains("kể xong rồi") ||
+                  lower.contains("con đã kể xong") ||
+                  lower.contains("kể hết rồi") ||
+                  lower.contains("hết rồi") ||
                   lower.contains("kể xong")) {
-                LogService.log("[ConversationVM] Detected completion keyword in ConversationUpdate from user after 10s -> Auto closing storytelling popup");
+                LogService.log("[ConversationVM] Detected completion keyword in ConversationUpdate from user -> Auto closing storytelling banner");
                 stopStorytellingPhase(notifyServer: false);
                 break;
               }
@@ -273,20 +278,24 @@ class ConversationViewModel extends ChangeNotifier {
           SpeechService.sendAnimationFace("SILIENCE");
         }
 
-        // Tự động đóng popup Kể tự do CHỈ KHI:
-        // 1. Đã qua ít nhất 10 giây từ khi mở popup
+        // Tự động đóng banner Kể tự do CHỈ KHI:
+        // 1. Đã qua ít nhất 3 giây từ khi mở banner
         // 2. Người nói là Người dùng (KHÔNG PHẢI Trạm Lắng Nghe)
-        // 3. Chứa từ khóa 'tôi đã kể xong'
+        // 3. Chứa từ khóa 'tôi đã kể xong' hoặc các biến thể kết thúc
         if (_isStorytellingActive &&
             vm.speaker != 'Trạm Lắng Nghe' &&
             _storytellingStartTime != null &&
-            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 10) {
+            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 3) {
           final lower = newText.toLowerCase();
           if (lower.contains("tôi đã kể xong") ||
               lower.contains("đã kể xong") ||
+              lower.contains("tôi kể xong rồi") ||
               lower.contains("kể xong rồi") ||
+              lower.contains("con đã kể xong") ||
+              lower.contains("kể hết rồi") ||
+              lower.contains("hết rồi") ||
               lower.contains("kể xong")) {
-            LogService.log("[ConversationVM] Detected 'tôi đã kể xong' from user after 10s -> Auto closing storytelling popup");
+            LogService.log("[ConversationVM] Detected completion keyword from user -> Auto closing storytelling banner");
             stopStorytellingPhase(notifyServer: false);
           }
         }
@@ -365,6 +374,7 @@ class ConversationViewModel extends ChangeNotifier {
         _isProcessing = true;
       } else if (state == VapiCallState.active) {
         _isProcessing = false;
+        _vapiService.syncVolume();
       } else if (state == VapiCallState.ended || state == VapiCallState.error) {
         _isProcessing = false;
         SpeechService.sendAnimationFace("SILIENCE");

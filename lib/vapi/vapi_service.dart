@@ -64,6 +64,7 @@ class VapiService {
           for (var item in rawMessages) {
             if (item is Map) {
               final role = item['role']?.toString().toLowerCase() ?? '';
+              if (role == 'system') continue;
               final content = item['content']?.toString() ?? item['message']?.toString();
               if (content != null && content.trim().isNotEmpty) {
                 final speaker = (role == 'assistant' || role == 'bot' || role == 'model')
@@ -91,8 +92,22 @@ class VapiService {
 
         if (text.isNotEmpty) {
           final textLower = text.toLowerCase();
+          final hasExplicitAssistantPhrase = textLower.contains('con chào') ||
+              textLower.contains('con là') ||
+              textLower.contains('con xin') ||
+              textLower.contains('con cảm ơn') ||
+              textLower.contains('cho con hỏi') ||
+              textLower.contains('giùm con') ||
+              textLower.contains('ghi nhận thông tin') ||
+              textLower.contains('quỹ bông sen') ||
+              textLower.contains('trạm lắng nghe') ||
+              textLower.startsWith('dạ, con') ||
+              textLower.startsWith('dạ con');
+
           String speaker;
-          if (rawRole.isNotEmpty) {
+          if (hasExplicitAssistantPhrase) {
+            speaker = 'Trạm Lắng Nghe';
+          } else if (rawRole.isNotEmpty) {
             if (rawRole == 'assistant' || rawRole == 'bot' || rawRole == 'model') {
               speaker = 'Trạm Lắng Nghe';
             } else if (rawRole == 'user') {
@@ -112,8 +127,6 @@ class VapiService {
                 textLower.contains('cô bác') ||
                 textLower.contains('trạm lắng nghe') ||
                 textLower.contains('quỹ bông sen') ||
-                textLower.contains('đồng ý') && textLower.contains('nói') ||
-                textLower.contains('hoàn cảnh') && textLower.contains('nghe') ||
                 textLower.contains('xem xét hỗ trợ') ||
                 textLower.contains('tóm tắt');
             speaker = isAssistant ? 'Trạm Lắng Nghe' : 'Người cần giúp đỡ';

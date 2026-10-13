@@ -72,6 +72,12 @@ class ConversationViewModel extends ChangeNotifier {
   DateTime? _storytellingStartTime;
   Timer? _storytellingTimer;
 
+  bool _isPendingStorytellingStart = false;
+  DateTime? _storytellingDetectedTime;
+  DateTime? _storytellingLastTextUpdate;
+  String _storytellingInvitationFullText = "";
+  Timer? _storytellingStartTimer;
+
   bool get isStorytellingActive => _isStorytellingActive;
   int get storytellingRemainingSeconds => _storytellingRemainingSeconds;
   String get storytellingFormattedTime {
@@ -80,11 +86,102 @@ class ConversationViewModel extends ChangeNotifier {
     return "$minutes:$seconds";
   }
 
+  bool _isStorytellingInvitationText(String text) {
+    final lower = text.toLowerCase();
+
+    final bool hasStorytellingPrompt = lower.contains("kể tường tận") ||
+        lower.contains("kể càng chi tiết") ||
+        lower.contains("kể chi tiết") ||
+        lower.contains("tường tận cho con nghe");
+
+    final bool hasEndingKeyword = lower.contains("tôi đã kể xong") ||
+        lower.contains("khi xong") ||
+        lower.contains("dùm con");
+
+    final wordCount = text.trim().split(RegExp(r'\s+')).length;
+
+    // Trường hợp 1: Toàn bộ câu mời (hoặc cả đoạn mời) có chứa keyword kể và keyword hướng dẫn kết thúc
+    if (hasStorytellingPrompt && hasEndingKeyword) {
+      return true;
+    }
+
+    // Trường hợp 2: Có keyword kể và chứa "ghi nhận hết" với số lượng từ đủ dài (ít nhất 25 từ)
+    if (hasStorytellingPrompt && lower.contains("ghi nhận hết") && wordCount >= 25) {
+      return true;
+    }
+
+    // Trường hợp 3: Tin nhắn hiện tại là câu hướng dẫn kết thúc ("Khi xong, cô bác vui lòng nói 'tôi đã kể xong' dùm con ạ"), 
+    // còn câu trước đó của Trạm Lắng Nghe chứa "kể tường tận"
+    if (hasEndingKeyword) {
+      final recentAssistantMsgs = _messages.reversed
+          .where((m) => m.sender == 'Trạm Lắng Nghe')
+          .take(2);
+      for (var m in recentAssistantMsgs) {
+        final prevLower = m.content.toLowerCase();
+        if (prevLower.contains("kể tường tận") ||
+            prevLower.contains("kể càng chi tiết") ||
+            prevLower.contains("kể chi tiết") ||
+            prevLower.contains("tường tận cho con nghe")) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  void _scheduleStorytellingStart(String fullText) {
+    _storytellingStartTimer?.cancel();
+
+    final wordCount = fullText.trim().split(RegExp(r'\s+')).length;
+    // Tốc độ đọc tự nhiên tiếng Việt: ~ 2.8 - 3 từ/giây (khoảng 340ms/từ) + 1.8s đệm an toàn sau khi đọc xong
+    // Với câu mời ~47 từ, tổng thời gian đọc khoảng 16 - 17 giây
+    final estimatedReadingMs = (wordCount * 340) + 1800;
+    final elapsedMs = _storytellingDetectedTime != null
+        ? DateTime.now().difference(_storytellingDetectedTime!).inMilliseconds
+        : 0;
+    final remainingMs = math.max(2500, estimatedReadingMs - elapsedMs);
+
+    LogService.log("[ConversationVM] Storytelling phase scheduled in ${remainingMs}ms (words: $wordCount, elapsed: ${elapsedMs}ms, estTotal: ${estimatedReadingMs}ms)");
+
+    _storytellingStartTimer = Timer(Duration(milliseconds: remainingMs), () {
+      if (!_isPendingStorytellingStart || _isStorytellingActive) return;
+
+      final sinceLastUpdate = _storytellingLastTextUpdate != null
+          ? DateTime.now().difference(_storytellingLastTextUpdate!).inMilliseconds
+          : 9999;
+
+      if (sinceLastUpdate >= 1000) {
+        LogService.log("[ConversationVM] Full storytelling invitation speech duration elapsed with stable transcript -> Triggering startStorytellingPhase");
+        _triggerStorytellingStart();
+      } else {
+        LogService.log("[ConversationVM] Transcript still updating (${sinceLastUpdate}ms ago) -> Extending storytelling wait");
+        _scheduleStorytellingStart(_storytellingInvitationFullText);
+      }
+    });
+  }
+
+  void _triggerStorytellingStart() {
+    if (_isStorytellingActive || !_isPendingStorytellingStart) return;
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
+
+    LogService.log("[ConversationVM] Assistant finished speaking full storytelling invitation -> Starting storytelling phase now");
+    startStorytellingPhase();
+  }
+
   void startStorytellingPhase({int? customSeconds}) {
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
+
     _storytellingTimer?.cancel();
     _isStorytellingActive = true;
     _storytellingStartTime = DateTime.now();
     _storytellingRemainingSeconds = customSeconds ?? storytellingDurationSeconds;
+
+    SpeechService.sendAnimationFace("SILIENCE");
 
     // Tắt tiếng loa trợ lý trong suốt thời gian kể tự do để bảo đảm người dùng không bị xen ngang/cắt lời
     if (flagVAPI) {
@@ -106,6 +203,10 @@ class ConversationViewModel extends ChangeNotifier {
 
   void stopStorytellingPhase({bool notifyServer = true}) {
     _storytellingTimer?.cancel();
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
+
     if (_isStorytellingActive) {
       _isStorytellingActive = false;
 
@@ -113,11 +214,6 @@ class ConversationViewModel extends ChangeNotifier {
       if (flagVAPI) {
         LogService.log("[ConversationVM] Unmuting assistant speaker after free storytelling phase");
         _vapiService.setSpeakerMuted(false);
-      }
-
-      // Chốt dứt điểm lượt nói của người dùng trước khi trợ lý bắt đầu Giai đoạn 3
-      if (_activeSpeaker == 'Người cần giúp đỡ') {
-        _settleActiveTurn();
       }
 
       notifyListeners();
@@ -140,12 +236,6 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   Timer? _vapiTranscriptDebounce;
-  Timer? _transcriptDebounceTimer;
-  final List<String> _currentTurnLockedSentences = [];
-  String _currentTurnStreamingSentence = "";
-  String _activeSpeaker = "";
-  String _pendingHintSpeaker = "";
-
   DateTime _lastStreamingNotifyTime = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _streamingNotifyTimer;
 
@@ -164,8 +254,6 @@ class ConversationViewModel extends ChangeNotifier {
       });
     }
   }
-
-  String get _pendingTranscriptText => _getCurrentTurnFullText();
   File? _currentSessionLogFile;
   String? _currentSessionName;
   Timer? _saveLogFileDebounceTimer;
@@ -231,9 +319,6 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   Future<void> _writeSessionLogNow() async {
-    if (_pendingTranscriptText.trim().isNotEmpty) {
-      _commitPendingTranscript();
-    }
     final fileName = currentSessionFileName;
     if (fileName == null) return;
 
@@ -277,410 +362,6 @@ class ConversationViewModel extends ChangeNotifier {
     }
   }
 
-  bool _isUtteranceUpdate(String current, String incoming) {
-    if (current.isEmpty) return true;
-    if (incoming.isEmpty) return true;
-    if (current == incoming) return true;
-
-    final currLower = current.toLowerCase().trim();
-    final incLower = incoming.toLowerCase().trim();
-
-    // 1. Một câu bao hàm câu kia (streaming nối dài thêm hoặc chỉnh sửa)
-    if (incLower.contains(currLower) || currLower.contains(incLower)) {
-      return true;
-    }
-
-    // 2. Kiểm tra trùng khớp từ ở phần mở đầu (cùng 1 câu đang nói dở)
-    final currWords = currLower.split(RegExp(r'\s+'));
-    final incWords = incLower.split(RegExp(r'\s+'));
-
-    if (currWords.isNotEmpty && incWords.isNotEmpty) {
-      if (currWords.first == incWords.first) {
-        if (currWords.length <= 2 || incWords.length <= 2) return true;
-        if (currWords[1] == incWords[1]) return true;
-      }
-
-      int matchCount = 0;
-      final checkLen = math.min(math.min(currWords.length, incWords.length), 4);
-      for (int i = 0; i < checkLen; i++) {
-        if (currWords[i] == incWords[i]) matchCount++;
-      }
-      if (matchCount >= 2) return true;
-    }
-
-    // 3. Trùng khớp tiền tố ký tự
-    final minLen = math.min(currLower.length, incLower.length);
-    final prefixCheckLen = math.min(minLen, 15);
-    if (prefixCheckLen >= 5 && currLower.substring(0, prefixCheckLen) == incLower.substring(0, prefixCheckLen)) {
-      return true;
-    }
-
-    return false;
-  }
-
-  String _getCurrentTurnFullText() {
-    final curr = _currentTurnStreamingSentence.trim();
-    final currLower = curr.toLowerCase();
-
-    final List<String> parts = [];
-    for (var s in _currentTurnLockedSentences) {
-      final clean = s.trim();
-      if (clean.isNotEmpty) {
-        // Nếu câu đang stream dở đã bao hàm câu này từ đầu, không thêm lặp lại
-        if (currLower.contains(clean.toLowerCase())) continue;
-        if (parts.isEmpty || parts.last.toLowerCase() != clean.toLowerCase()) {
-          parts.add(clean);
-        }
-      }
-    }
-
-    if (curr.isNotEmpty) {
-      if (parts.isEmpty || parts.last.toLowerCase() != curr.toLowerCase()) {
-        parts.add(curr);
-      }
-    }
-    return parts.join(" ").trim();
-  }
-
-  String _determineSpeakerForIncoming(String text, {String? hintSpeaker}) {
-    final lower = text.toLowerCase().trim();
-
-    // 1. Khi chưa có tin nhắn nào trong cuộc gọi và là câu chào mở đầu -> Luôn là Trạm Lắng Nghe
-    if (_messages.isEmpty && _currentTurnLockedSentences.isEmpty && _currentTurnStreamingSentence.isEmpty) {
-      if (lower.contains('con chào') || lower.contains('quỹ bông sen') || lower.contains('trạm lắng nghe') || hintSpeaker == 'Trạm Lắng Nghe') {
-        return 'Trạm Lắng Nghe';
-      }
-    }
-
-    // 2. Nhận diện các câu nói chắc chắn của người dùng
-    final bool isUserExplicit = lower.startsWith('tôi đồng ý') ||
-        lower == 'đồng ý' ||
-        lower == 'đồng ý.' ||
-        lower.startsWith('không đồng ý') ||
-        lower.startsWith('tôi tên') ||
-        lower.startsWith('tôi bị') ||
-        lower.startsWith('tôi đi làm') ||
-        lower.startsWith('tôi ở') ||
-        lower.startsWith('tôi làm') ||
-        lower.startsWith('tôi đã kể xong') ||
-        lower.startsWith('tôi kể xong') ||
-        lower.startsWith('kể xong rồi') ||
-        lower.startsWith('đã xong');
-
-    if (isUserExplicit) {
-      return 'Người cần giúp đỡ';
-    }
-
-    // 3. Nhận diện các câu chắc chắn của trợ lý
-    final bool isAssistantExplicit = lower.contains('con chào') ||
-        lower.contains('chào cô bác') ||
-        lower.contains('chào chú') ||
-        lower.contains('chào bác') ||
-        lower.contains('con là') ||
-        lower.contains('con xin') ||
-        lower.contains('con cảm ơn') ||
-        lower.contains('cho con hỏi') ||
-        lower.contains('hỏi thêm') ||
-        lower.contains('công việc hay nghề nghiệp') ||
-        lower.contains('nghề nghiệp của') ||
-        lower.contains('công việc của') ||
-        lower.contains('thu nhập của') ||
-        lower.contains('bao nhiêu mỗi tháng') ||
-        lower.contains('bao nhiêu mỗi ngày') ||
-        lower.contains('vẫn đang nghe') ||
-        lower.contains('kể tiếp') ||
-        lower.contains('cô bác chia sẻ') ||
-        lower.contains('cô bác') ||
-        lower.contains('chú ơi') ||
-        lower.contains('bác ơi') ||
-        lower.contains('quỹ bông sen') ||
-        lower.contains('trạm lắng nghe') ||
-        lower.contains('xem xét hỗ trợ') ||
-        lower.contains('vui lòng nói') ||
-        lower.contains('đồng ý không ạ') ||
-        lower == 'được.' ||
-        lower == 'được' ||
-        lower == 'dạ.' ||
-        lower == 'dạ' ||
-        lower == 'dạ vâng.' ||
-        lower == 'dạ vâng' ||
-        lower == 'dạ chú.' ||
-        lower == 'dạ chú' ||
-        lower.endsWith('ạ?') ||
-        lower.endsWith('ạ.');
-
-    if (isAssistantExplicit) {
-      return 'Trạm Lắng Nghe';
-    }
-
-    // 4. Ưu tiên phân định theo hintSpeaker từ WebRTC (track microphone của người dùng vs audio của trợ lý)
-    if (hintSpeaker != null && hintSpeaker.isNotEmpty) {
-      if (hintSpeaker == 'Người cần giúp đỡ') {
-        return 'Người cần giúp đỡ';
-      }
-      if (hintSpeaker == 'Trạm Lắng Nghe') {
-        return 'Trạm Lắng Nghe';
-      }
-    }
-
-    // 5. Nếu không có hintSpeaker, duy trì speaker theo lượt nói hiện tại
-    if (_activeSpeaker.isNotEmpty) {
-      if (_activeSpeaker == 'Trạm Lắng Nghe' && !isUserExplicit) {
-        return 'Trạm Lắng Nghe';
-      }
-      if (_activeSpeaker == 'Người cần giúp đỡ' && !isAssistantExplicit) {
-        return 'Người cần giúp đỡ';
-      }
-    }
-
-    // 6. Sử dụng hàm phân định tổng quát
-    return _resolveSpeaker(text, hintSpeaker: hintSpeaker);
-  }
-
-  String _resolveSpeaker(String text, {String? hintSpeaker}) {
-    final clean = text.trim();
-    if (clean.isEmpty) return hintSpeaker ?? 'Người cần giúp đỡ';
-
-    // 1. Nếu là câu mở đầu cuộc trò chuyện (chưa có tin nhắn nào trong danh sách), 100% là Trạm Lắng Nghe
-    if (_messages.isEmpty) {
-      return 'Trạm Lắng Nghe';
-    }
-
-    final lower = clean.toLowerCase();
-
-    // 2. Các cụm từ đặc trưng chỉ Trạm Lắng Nghe sử dụng (xưng con, gọi cô bác/chú/bác, Quỹ Bông Sen, câu hỏi khảo sát...)
-    final bool hasAssistantPronouns = lower.contains('con chào') ||
-        lower.contains('chào cô bác') ||
-        lower.contains('chào chú') ||
-        lower.contains('chào bác') ||
-        lower.contains('con là') ||
-        lower.contains('con xin') ||
-        lower.contains('con cảm ơn') ||
-        lower.contains('con hiểu') ||
-        lower.contains('cho con hỏi') ||
-        lower.contains('giùm con') ||
-        lower.contains('cô bác') ||
-        lower.contains('cô/bác') ||
-        lower.contains('chú ơi') ||
-        lower.contains('bác ơi');
-
-    final bool hasAssistantOrgKeywords = lower.contains('trạm lắng nghe') ||
-        lower.contains('quỹ bông sen') ||
-        lower.contains('bông sen') ||
-        lower.contains('xem xét hỗ trợ') ||
-        lower.contains('kiểm tra hoàn cảnh') ||
-        lower.contains('hậu kiểm') ||
-        lower.contains('hội đồng') ||
-        lower.contains('chuyển hồ sơ') ||
-        lower.contains('gửi hồ sơ');
-
-    final bool hasAssistantInstructionKeywords = lower.contains('vui lòng nói') ||
-        lower.contains('đồng ý không ạ') ||
-        (lower.contains('không đồng ý') && lower.contains('vui lòng')) ||
-        lower.contains('kể tường tận') ||
-        lower.contains('kể càng chi tiết') ||
-        lower.contains('thu nhập trung bình') ||
-        lower.contains('thu nhập này của chú') ||
-        lower.contains('chi phí sinh hoạt') ||
-        lower.contains('khoản viện phí') ||
-        lower.contains('số tiền nợ') ||
-        lower.contains('nuôi dưỡng hay chăm sóc') ||
-        lower.contains('tài sản nào có thể') ||
-        lower.contains('tạm dừng và đóng ca') ||
-        lower.contains('đóng ca hỗ trợ') ||
-        lower.contains('tư vấn tâm lý chuyên sâu') ||
-        lower.contains('kết thúc ca hỗ trợ');
-
-    // Các từ đệm/phản hồi ngắn đặc trưng của AI Trạm Lắng Nghe khi người dùng vừa cung cấp thông tin
-    final bool isShortAssistantAck = lower == 'được.' ||
-        lower == 'được' ||
-        lower == 'dạ.' ||
-        lower == 'dạ' ||
-        lower == 'dạ vâng.' ||
-        lower == 'dạ vâng' ||
-        lower == 'dạ chú.' ||
-        lower == 'dạ chú' ||
-        lower == 'dạ cô.' ||
-        lower == 'dạ bác.' ||
-        lower == 'dạ được.' ||
-        lower == 'vâng ạ.' ||
-        lower == 'vâng ạ' ||
-        lower == 'vâng.';
-
-    final bool endsWithAssistantQuestion = lower.endsWith('ạ?') ||
-        lower.endsWith('ạ.') ||
-        lower.endsWith('ạ') ||
-        lower.endsWith('nhé?') ||
-        lower.endsWith('không ạ?') ||
-        lower.endsWith('đúng không ạ?') ||
-        lower.endsWith('phải không ạ?');
-
-    if (hasAssistantPronouns || hasAssistantOrgKeywords || hasAssistantInstructionKeywords) {
-      return 'Trạm Lắng Nghe';
-    }
-
-    if (isShortAssistantAck) {
-      return 'Trạm Lắng Nghe';
-    }
-
-    if (endsWithAssistantQuestion && !lower.startsWith('tôi') && !lower.contains('tôi đồng ý')) {
-      return 'Trạm Lắng Nghe';
-    }
-
-    // 3. Các từ khóa đặc trưng của Người cần giúp đỡ (xưng tôi, câu trả lời trực tiếp)
-    final bool isUserDirectResponse = lower.contains('tôi đồng ý') ||
-        lower == 'đồng ý' ||
-        lower == 'đồng ý.' ||
-        lower.contains('không đồng ý') ||
-        lower.contains('tôi đã kể xong') ||
-        lower.contains('tôi kể xong') ||
-        lower.contains('đã kể xong') ||
-        lower.contains('kể xong rồi') ||
-        lower.startsWith('tôi tên') ||
-        lower.startsWith('tôi bị') ||
-        lower.startsWith('tôi đi làm') ||
-        lower.startsWith('tôi ở') ||
-        lower.startsWith('tôi làm');
-
-    if (isUserDirectResponse) {
-      return 'Người cần giúp đỡ';
-    }
-
-    // 4. Nếu có hint từ backend WebRTC
-    if (hintSpeaker != null && hintSpeaker.isNotEmpty) {
-      if (hintSpeaker == 'Trạm Lắng Nghe' && (lower.contains('dạ') || endsWithAssistantQuestion || (_messages.isNotEmpty && _messages.last.sender == 'Người cần giúp đỡ'))) {
-        return 'Trạm Lắng Nghe';
-      }
-      if (hintSpeaker == 'Người cần giúp đỡ' && !hasAssistantPronouns && !hasAssistantOrgKeywords) {
-        return 'Người cần giúp đỡ';
-      }
-    }
-
-    // 5. Heuristic luân phiên lượt nói (Turn alternation):
-    if (_messages.isNotEmpty && _messages.last.sender == 'Người cần giúp đỡ') {
-      if (lower.startsWith('dạ') || endsWithAssistantQuestion || lower.length > 30) {
-        return 'Trạm Lắng Nghe';
-      }
-    }
-
-    if (_messages.isNotEmpty && _messages.last.sender == 'Trạm Lắng Nghe') {
-      return 'Người cần giúp đỡ';
-    }
-
-    return 'Người cần giúp đỡ';
-  }
-
-  void _settleActiveTurn() {
-    _streamingNotifyTimer?.cancel();
-    _streamingNotifyTimer = null;
-    _transcriptDebounceTimer?.cancel();
-    _transcriptDebounceTimer = null;
-
-    final fullText = _getCurrentTurnFullText();
-    final speaker = _activeSpeaker.isNotEmpty
-        ? _activeSpeaker
-        : _resolveSpeaker(fullText, hintSpeaker: _pendingHintSpeaker);
-
-    _currentTurnLockedSentences.clear();
-    _currentTurnStreamingSentence = "";
-    _activeSpeaker = "";
-    _pendingHintSpeaker = "";
-
-    if (fullText.isEmpty) return;
-
-    LogService.log("[ConversationVM] Turn settled (1.6s silence) -> [$speaker]: $fullText");
-
-    // Đảm bảo tin nhắn cuối cùng trong _messages chứa trọn vẹn fullText chuẩn xác
-    if (_messages.isNotEmpty && _messages.last.sender == speaker) {
-      _messages[_messages.length - 1] = ConversationMessage(
-        sender: speaker,
-        content: fullText,
-        timestamp: _messages.last.timestamp,
-      );
-    } else {
-      _messages.add(ConversationMessage(
-        sender: speaker,
-        content: fullText,
-        timestamp: DateTime.now(),
-      ));
-    }
-
-    // Kích hoạt animation mặt robot
-    if (speaker == 'Trạm Lắng Nghe') {
-      SpeechService.sendAnimationFace("SAY");
-    } else {
-      SpeechService.sendAnimationFace("SILIENCE");
-    }
-
-    // Tự động đóng banner Kể tự do khi Người dùng kết thúc
-    if (_isStorytellingActive &&
-        speaker != 'Trạm Lắng Nghe' &&
-        _storytellingStartTime != null &&
-        DateTime.now().difference(_storytellingStartTime!).inSeconds >= 3) {
-      final lower = fullText.toLowerCase();
-      if (lower.contains("tôi đã kể xong") ||
-          lower.contains("đã kể xong") ||
-          lower.contains("tôi kể xong rồi") ||
-          lower.contains("kể xong rồi") ||
-          lower.contains("con đã kể xong") ||
-          lower.contains("kể hết rồi") ||
-          lower.contains("hết rồi") ||
-          lower.contains("kể xong")) {
-        LogService.log("[ConversationVM] Detected completion keyword from user -> Auto closing storytelling banner");
-        stopStorytellingPhase(notifyServer: false);
-      }
-    }
-
-    // Tự động kích hoạt popup Kể tự do khi AI đã đọc đến đoạn kết thúc câu mời: "con sẽ ghi nhận hết ạ"
-    if (speaker == 'Trạm Lắng Nghe' &&
-        (fullText.toLowerCase().contains("con sẽ ghi nhận hết") ||
-            fullText.toLowerCase().contains("ghi nhận hết ạ") ||
-            fullText.toLowerCase().contains("kể tường tận cho con nghe")) &&
-        !_isStorytellingActive) {
-      LogService.log("[ConversationVM] Detected final invitation phrase ('con sẽ ghi nhận hết') -> Auto starting startStorytellingPhase");
-      startStorytellingPhase();
-    }
-
-    // Tự động kích hoạt kết thúc hội thoại khi AI nói câu kết thúc hoặc TẦNG BẢO VỆ được kích hoạt
-    final String lower = fullText.toLowerCase();
-    final bool isCompletionPhrase = lower.contains("con sẽ gửi hồ sơ") ||
-        lower.contains("gửi hồ sơ này lên hội đồng") ||
-        lower.contains("gửi hồ sơ lên hội đồng") ||
-        lower.contains("chuyển hồ sơ cho quỹ") ||
-        lower.contains("chuyển hồ sơ lên hội đồng") ||
-        lower.contains("kết thúc buổi trao đổi") ||
-        lower.contains("kết thúc cuộc trò chuyện") ||
-        lower.contains("kết thúc buổi chia sẻ");
-
-    final bool isGuardLayerTriggered = lower.contains("tạm dừng và đóng ca") ||
-        lower.contains("đóng ca hỗ trợ") ||
-        lower.contains("đóng ca tại đây") ||
-        lower.contains("chưa có chức năng tư vấn tâm lý") ||
-        lower.contains("tư vấn tâm lý chuyên sâu") ||
-        lower.contains("tạm dừng cuộc gọi") ||
-        lower.contains("kết thúc ca hỗ trợ") ||
-        lower.contains("dừng ca hỗ trợ") ||
-        lower.contains("xin phép dừng ca");
-
-    if (speaker == 'Trạm Lắng Nghe' &&
-        (isCompletionPhrase || isGuardLayerTriggered) &&
-        !_isFinalizing) {
-      if (!_isPendingAutoFinalize) {
-        _isPendingAutoFinalize = true;
-        _autoFinalizeDetectedTime = DateTime.now();
-        LogService.log("[ConversationVM] Detected completion or guard layer trigger phrase -> Starting auto-finalize watcher, will wait until AI finishes full sentence...");
-      }
-      _autoFinalizeLastTextUpdate = DateTime.now();
-      _autoFinalizeFullText = fullText;
-      _scheduleAutoFinalizeCheck(fullText);
-    }
-
-    _scheduleSaveSessionLog();
-    notifyListeners();
-  }
-
-  void _commitPendingTranscript() => _settleActiveTurn();
-
   void _initVapi() {
     debugPrint("[ConversationVM] Setting up Vapi listeners & starting call...");
     _vapiTranscriptSub?.cancel();
@@ -689,33 +370,33 @@ class ConversationViewModel extends ChangeNotifier {
     _autoFinalizeTimer?.cancel();
     _autoFinalizeTimer = null;
     _isPendingAutoFinalize = false;
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
+
     _vapiTranscriptSub = _vapiService.onTranscriptUpdated.listen((vapiMessages) {
       if (!flagVAPI || vapiMessages.isEmpty) return;
 
       final bool isConvUpdate = vapiMessages.any((m) => m.isConversationUpdate) || vapiMessages.length > 1;
 
-      // Nếu là danh sách hội thoại hoàn chỉnh từ ConversationUpdate (chuẩn 100% như Vapi Dashboard)
+      // 1. Nếu là danh sách hội thoại hoàn chỉnh từ ConversationUpdate (chuẩn 100% như Vapi Dashboard)
       if (isConvUpdate) {
-        _transcriptDebounceTimer?.cancel();
-        _transcriptDebounceTimer = null;
-        _currentTurnLockedSentences.clear();
-        _currentTurnStreamingSentence = "";
-        _activeSpeaker = "";
-        _pendingHintSpeaker = "";
-
         _messages.clear();
         for (var vm in vapiMessages) {
-          if (vm.text.trim().isNotEmpty) {
+          final t = vm.text.trim();
+          if (t.isNotEmpty) {
             _messages.add(ConversationMessage(
               sender: vm.speaker,
-              content: vm.text.trim(),
+              content: t,
               timestamp: DateTime.now(),
             ));
           }
         }
+
+        // Tự động đóng banner Kể tự do nếu user đã nói từ khóa hoàn tất
         if (_isStorytellingActive &&
             _storytellingStartTime != null &&
-            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 3) {
+            DateTime.now().difference(_storytellingStartTime!).inSeconds >= 2) {
           for (var vm in vapiMessages) {
             if (vm.speaker != 'Trạm Lắng Nghe') {
               final lower = vm.text.toLowerCase();
@@ -735,29 +416,51 @@ class ConversationViewModel extends ChangeNotifier {
             }
           }
         }
-        _streamingNotifyTimer?.cancel();
-        _streamingNotifyTimer = null;
+
+        // Kiểm tra câu mời kể tự do trong ConversationUpdate
+        if (!_isStorytellingActive && _messages.isNotEmpty) {
+          final lastVm = _messages.last;
+          if (lastVm.sender == 'Trạm Lắng Nghe' && _isStorytellingInvitationText(lastVm.content)) {
+            if (!_isPendingStorytellingStart) {
+              _isPendingStorytellingStart = true;
+              _storytellingDetectedTime = DateTime.now();
+              LogService.log("[ConversationVM] ConversationUpdate detected full storytelling invitation -> Scheduling storytelling start...");
+            }
+            _storytellingLastTextUpdate = DateTime.now();
+            _storytellingInvitationFullText = lastVm.content;
+            _scheduleStorytellingStart(lastVm.content);
+          }
+        }
+
         _scheduleSaveSessionLog();
         notifyListeners();
         return;
       }
 
-      // Xử lý từng mẩu tin Transcript thời gian thực: Hiển thị từ từ ra UI ngay lập tức
+      // 2. Xử lý từng mẩu tin Transcript thời gian thực (hiển thị mượt mà từng chữ ra UI)
       for (var vm in vapiMessages) {
         final newText = vm.text.trim();
         if (newText.isEmpty) continue;
 
-        // Xác định người nói cho mẩu tin mới
-        final incomingSpeaker = _determineSpeakerForIncoming(newText, hintSpeaker: vm.speaker);
+        final speaker = vm.speaker;
 
-        // Trong giai đoạn kể tự do (Storytelling), tuyệt đối chặn mọi câu chen ngang từ trợ lý (như "Dạ con vẫn đang nghe...", "kể tiếp đi ạ...")
-        if (_isStorytellingActive && incomingSpeaker == 'Trạm Lắng Nghe') {
-          LogService.log("[ConversationVM] Suppressed assistant interruption during storytelling: '$newText'");
-          continue;
+        // Hoạt ảnh khuôn mặt robot
+        if (speaker == 'Trạm Lắng Nghe') {
+          SpeechService.sendAnimationFace("SAY");
+        } else {
+          SpeechService.sendAnimationFace("SILIENCE");
         }
 
-        // Kiểm tra từ khóa hoàn tất lời kể từ người dùng trong giai đoạn kể tự do
-        if (_isStorytellingActive && incomingSpeaker == 'Người cần giúp đỡ') {
+        // Trong giai đoạn kể tự do (Storytelling), bỏ qua câu đệm ngắn vô nghĩa nếu AI phát "Dạ"
+        if (_isStorytellingActive && speaker == 'Trạm Lắng Nghe') {
+          final cleanLow = newText.toLowerCase().trim();
+          if (cleanLow == 'dạ.' || cleanLow == 'dạ' || cleanLow == 'vâng' || cleanLow == 'vâng ạ') {
+            continue;
+          }
+        }
+
+        // Kiểm tra từ khóa hoàn tất lời kể trong giai đoạn kể tự do
+        if (_isStorytellingActive && speaker == 'Người cần giúp đỡ') {
           final lower = newText.toLowerCase();
           final bool isFinishedKeyword = lower.contains("tôi đã kể xong") ||
               lower.contains("đã xong") ||
@@ -777,67 +480,83 @@ class ConversationViewModel extends ChangeNotifier {
           }
         }
 
-        // Nếu người nói đổi vai (ví dụ: AI nói xong, người dùng bắt đầu nói):
-        if (_activeSpeaker.isNotEmpty && _activeSpeaker != incomingSpeaker) {
-          LogService.log("[ConversationVM] Speaker changed from $_activeSpeaker to $incomingSpeaker -> Settling previous turn");
-          _settleActiveTurn();
-        }
-
-        // Thiết lập người nói cho lượt hiện tại
-        _activeSpeaker = incomingSpeaker;
-        if (vm.speaker.isNotEmpty) {
-          _pendingHintSpeaker = vm.speaker;
-        }
-
-        // Cập nhật câu vào bộ đệm streaming: thay thế nếu cùng câu, thêm mới nếu sang câu kế tiếp
-        if (_isUtteranceUpdate(_currentTurnStreamingSentence, newText)) {
-          if (newText.length >= _currentTurnStreamingSentence.length || !newText.endsWith('...')) {
-            _currentTurnStreamingSentence = newText;
-          }
-        } else {
-          if (_currentTurnStreamingSentence.trim().isNotEmpty) {
-            final finished = _currentTurnStreamingSentence.trim();
-            if (_currentTurnLockedSentences.isEmpty ||
-                _currentTurnLockedSentences.last.toLowerCase() != finished.toLowerCase()) {
-              _currentTurnLockedSentences.add(finished);
-            }
-          }
-          _currentTurnStreamingSentence = newText;
-        }
-
-        // Lấy nội dung tích luỹ đầy đủ của lượt nói này (bao gồm cả các câu đã qua và câu đang stream)
-        final fullTurnText = _getCurrentTurnFullText();
-
-        // Cập nhật NGAY LẬP TỨC vào _messages để UI hiển thị từ từ ra, người dùng không phải chờ hết câu
-        if (_messages.isNotEmpty && _messages.last.sender == _activeSpeaker) {
+        // Hiển thị trực tiếp vào danh sách tin nhắn:
+        // Nếu tin nhắn cuối cùng cùng người nói -> cập nhật nội dung (streaming trôi mượt mà)
+        if (_messages.isNotEmpty && _messages.last.sender == speaker) {
           _messages[_messages.length - 1] = ConversationMessage(
-            sender: _activeSpeaker,
-            content: fullTurnText,
+            sender: speaker,
+            content: newText,
             timestamp: _messages.last.timestamp,
           );
         } else {
+          // Khác người nói -> thêm bong bóng tin nhắn mới
           _messages.add(ConversationMessage(
-            sender: _activeSpeaker,
-            content: fullTurnText,
+            sender: speaker,
+            content: newText,
             timestamp: DateTime.now(),
           ));
         }
 
-        // Điều khiển animation hoạt ảnh khuôn mặt robot
-        if (_activeSpeaker == 'Trạm Lắng Nghe') {
-          SpeechService.sendAnimationFace("SAY");
-        } else {
-          SpeechService.sendAnimationFace("SILIENCE");
+        // Kiểm tra xem AI đã nói câu mời kể tự do đầy đủ chưa
+        if (speaker == 'Trạm Lắng Nghe' &&
+            _isStorytellingInvitationText(newText) &&
+            !_isStorytellingActive) {
+          if (!_isPendingStorytellingStart) {
+            _isPendingStorytellingStart = true;
+            _storytellingDetectedTime = DateTime.now();
+            LogService.log("[ConversationVM] Live stream detected storytelling invitation -> Scheduling storytelling start...");
+          }
+          _storytellingLastTextUpdate = DateTime.now();
+          _storytellingInvitationFullText = newText;
+          _scheduleStorytellingStart(newText);
         }
 
-        // Đặt / reset Debounce Timer (1600ms): Sau khi dứt tiếng nói 1.6s sẽ chốt lượt nói hoàn toàn
-        _transcriptDebounceTimer?.cancel();
-        _transcriptDebounceTimer = Timer(const Duration(milliseconds: 1600), () {
-          _settleActiveTurn();
-        });
+        // Nếu người dùng bắt đầu nói trong lúc đang chờ AI kết thúc câu mời -> Kích hoạt ngay kể tự do
+        if (_isPendingStorytellingStart &&
+            !_isStorytellingActive &&
+            speaker == 'Người cần giúp đỡ' &&
+            newText.trim().length >= 4) {
+          LogService.log("[ConversationVM] User started speaking during pending storytelling invitation -> Triggering storytelling phase immediately");
+          _triggerStorytellingStart();
+        }
 
-        _notifyListenersStreamingThrottled();
+        // Tự động kết thúc hội thoại khi AI nói câu kết thúc hoặc TẦNG BẢO VỆ kích hoạt
+        final String lower = newText.toLowerCase();
+        final bool isCompletionPhrase = lower.contains("con sẽ gửi hồ sơ") ||
+            lower.contains("gửi hồ sơ này lên hội đồng") ||
+            lower.contains("gửi hồ sơ lên hội đồng") ||
+            lower.contains("chuyển hồ sơ cho quỹ") ||
+            lower.contains("chuyển hồ sơ lên hội đồng") ||
+            lower.contains("kết thúc buổi trao đổi") ||
+            lower.contains("kết thúc cuộc trò chuyện") ||
+            lower.contains("kết thúc buổi chia sẻ");
+
+        final bool isGuardLayerTriggered = lower.contains("tạm dừng và đóng ca") ||
+            lower.contains("đóng ca hỗ trợ") ||
+            lower.contains("đóng ca tại đây") ||
+            lower.contains("chưa có chức năng tư vấn tâm lý") ||
+            lower.contains("tư vấn tâm lý chuyên sâu") ||
+            lower.contains("tạm dừng cuộc gọi") ||
+            lower.contains("kết thúc ca hỗ trợ") ||
+            lower.contains("dừng ca hỗ trợ") ||
+            lower.contains("xin phép dừng ca");
+
+        if (speaker == 'Trạm Lắng Nghe' &&
+            (isCompletionPhrase || isGuardLayerTriggered) &&
+            !_isFinalizing) {
+          if (!_isPendingAutoFinalize) {
+            _isPendingAutoFinalize = true;
+            _autoFinalizeDetectedTime = DateTime.now();
+            LogService.log("[ConversationVM] Detected completion or guard phrase -> Starting auto-finalize watcher");
+          }
+          _autoFinalizeLastTextUpdate = DateTime.now();
+          _autoFinalizeFullText = newText;
+          _scheduleAutoFinalizeCheck(newText);
+        }
       }
+
+      _scheduleSaveSessionLog();
+      _notifyListenersStreamingThrottled();
     });
 
     _vapiStateSub = _vapiService.onCallStateChanged.listen((state) {
@@ -861,11 +580,18 @@ class ConversationViewModel extends ChangeNotifier {
       final role = (event['role']?.toString() ?? '').toLowerCase();
       LogService.log("[ConversationVM] SpeechUpdate received: role='$role', status='$status'");
 
-      // Nếu người dùng bắt đầu nói (role='user', status='started'), nếu trợ lý đang nói dở, chốt ngay lượt của trợ lý
-      if (role == 'user' && status.contains('started')) {
-        if (_activeSpeaker == 'Trạm Lắng Nghe') {
-          LogService.log("[ConversationVM] User speech started -> settling assistant turn immediately");
-          _settleActiveTurn();
+      // Xử lý khi AI hoàn tất nói toàn bộ câu mời kể tự do
+      if (_isPendingStorytellingStart && !_isStorytellingActive) {
+        if (status.contains('stopped')) {
+          final elapsedMs = _storytellingDetectedTime != null
+              ? DateTime.now().difference(_storytellingDetectedTime!).inMilliseconds
+              : 0;
+          final wordCount = _storytellingInvitationFullText.trim().split(RegExp(r'\s+')).length;
+          // Đảm bảo trợ lý đã nói đủ thời gian tối thiểu theo số từ (ít nhất 220ms/từ hoặc 4.5s)
+          if (elapsedMs >= math.max(4500, wordCount * 220)) {
+            LogService.log("[ConversationVM] Speech stopped received after full storytelling invitation spoken -> Triggering storytelling phase");
+            _triggerStorytellingStart();
+          }
         }
       }
 
@@ -960,6 +686,9 @@ class ConversationViewModel extends ChangeNotifier {
       _autoFinalizeTimer?.cancel();
       _autoFinalizeTimer = null;
       _isPendingAutoFinalize = false;
+      _storytellingStartTimer?.cancel();
+      _storytellingStartTimer = null;
+      _isPendingStorytellingStart = false;
       _vapiSpeechUpdateSub?.cancel();
       _vapiTranscriptDebounce?.cancel();
       _vapiService.stopCall();
@@ -976,13 +705,12 @@ class ConversationViewModel extends ChangeNotifier {
     _autoFinalizeTimer?.cancel();
     _autoFinalizeTimer = null;
     _isPendingAutoFinalize = false;
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
     _vapiSpeechUpdateSub?.cancel();
     _storytellingTimer?.cancel();
     _saveLogFileDebounceTimer?.cancel();
-    _transcriptDebounceTimer?.cancel();
-    if (_pendingTranscriptText.trim().isNotEmpty) {
-      _commitPendingTranscript();
-    }
     _writeSessionLogNow();
     _vapiTranscriptDebounce?.cancel();
     _vapiTranscriptSub?.cancel();
@@ -1145,16 +873,14 @@ class ConversationViewModel extends ChangeNotifier {
     _autoFinalizeTimer?.cancel();
     _autoFinalizeTimer = null;
     _isPendingAutoFinalize = false;
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
 
     _isFinalizing = true;
     _isProcessing = false;
     _isFinalizeVisible = false;
     _isFinalizeConfirmed = false;
-
-    _transcriptDebounceTimer?.cancel();
-    if (_pendingTranscriptText.trim().isNotEmpty) {
-      _commitPendingTranscript();
-    }
 
     // Ngắt âm thanh và cuộc gọi Vapi ngay khi kết thúc hội thoại
     _speechService.stop();
@@ -1187,6 +913,9 @@ class ConversationViewModel extends ChangeNotifier {
     _autoFinalizeTimer?.cancel();
     _autoFinalizeTimer = null;
     _isPendingAutoFinalize = false;
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
     _isFinalizing = false;
     _isFinalizeVisible = false;
     notifyListeners();
@@ -1246,6 +975,9 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   void clearConversation() {
+    _storytellingStartTimer?.cancel();
+    _storytellingStartTimer = null;
+    _isPendingStorytellingStart = false;
     _messages.clear();
     _userInput = "";
     _finalizeResult = "";

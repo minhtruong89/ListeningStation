@@ -717,26 +717,20 @@ class _ConversationViewState extends State<ConversationView> {
 
 
 
-  void _scrollToBottom() {
-
+  void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-
       if (_scrollController.hasClients) {
-
-        _scrollController.animateTo(
-
-          _scrollController.position.maxScrollExtent,
-
-          duration: const Duration(milliseconds: 300),
-
-          curve: Curves.easeOut,
-
-        );
-
+        if (animate) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        } else {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        }
       }
-
     });
-
   }
 
 
@@ -941,10 +935,13 @@ class _ConversationViewState extends State<ConversationView> {
 
     // Auto-scroll when new messages are added OR when streaming text grows longer
     final currentLastText = vm.messages.isNotEmpty ? vm.messages.last.content : "";
-    if (vm.messages.length != _lastMessageCount || currentLastText != _lastMessageText) {
+    if (vm.messages.length != _lastMessageCount) {
       _lastMessageCount = vm.messages.length;
       _lastMessageText = currentLastText;
-      _scrollToBottom();
+      _scrollToBottom(animate: true);
+    } else if (currentLastText != _lastMessageText) {
+      _lastMessageText = currentLastText;
+      _scrollToBottom(animate: false);
     }
 
 

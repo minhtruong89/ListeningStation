@@ -36,6 +36,7 @@ class SpeechService implements ISpeechService {
   static final ValueNotifier<String> faceAnimationNotifier = ValueNotifier<String>("HELLO");
 
   static void sendAnimationFace(String mode) {
+    if (faceAnimationNotifier.value == mode) return;
     debugPrint("[SpeechService] sendAnimationFace: $mode");
     faceAnimationNotifier.value = mode;
   }

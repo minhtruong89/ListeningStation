@@ -219,7 +219,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        val bridge = VapiNativeBridge(applicationContext, lifecycle)
+        val bridge = VapiNativeBridge(this, lifecycle)
         vapiBridge = bridge
         bridge.syncVoiceCallVolumeToMusic()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VAPI_METHOD_CHANNEL).setMethodCallHandler(bridge)

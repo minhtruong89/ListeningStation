@@ -36,6 +36,8 @@ class VapiNativeBridge(
     }
 
     fun initVapi() {
+        isDailyListenerAttached = false
+        lastRawTranscriptText = null
         if (vapiClient == null) {
             try {
                 Log.d("VapiNativeBridge", "Creating fresh Vapi client instance with public key: ${VapiConfig.PUBLIC_KEY}")
@@ -77,7 +79,13 @@ class VapiNativeBridge(
             Log.d("VapiNativeBridge", "Invoked static org.webrtc.voiceengine.WebRtcAudioTrack.setSpeakerMute($mute)")
         } catch (e: Throwable) {}
 
-        // 2. Quét vapiClient và callClient nếu có
+        if (!mute) {
+            // Khi BẬT TIẾNG: chỉ cần static unmute là đủ, TUYỆT ĐỐI không quét reflection hay quét Threads
+            // để tránh tạm dừng luồng âm thanh WebRTC gây khựng/giật tiếng (audio stutter).
+            return
+        }
+
+        // 2. Chỉ khi mute=true (TẮT TIẾNG HOÀN TOÀN), quét client để hạ volume AudioTrack
         try {
             val client = vapiClient
             if (client != null) {
@@ -92,20 +100,21 @@ class VapiNativeBridge(
                 } catch (e: Throwable) {}
             }
         } catch (e: Throwable) {}
+    }
 
-        // 3. Quét tất cả active Threads để mute trực tiếp WebRtcAudioTrack và android.media.AudioTrack
+    private fun setVapiClientMuted(muted: Boolean) {
         try {
-            val threads = Thread.getAllStackTraces().keys
-            for (t in threads) {
-                val tClass = t.javaClass.name
-                val tName = t.name
-                if (tClass.contains("WebRtc") || tClass.contains("AudioTrack") || 
-                    tName.contains("WebRtc") || tName.contains("AudioTrack")) {
-                    muteFieldsOfObject(t, mute)
+            val client = vapiClient ?: return
+            for (m in client.javaClass.declaredMethods) {
+                if (m.name.startsWith("setMuted")) {
+                    m.isAccessible = true
+                    m.invoke(client, muted)
+                    Log.d("VapiNativeBridge", "Invoked vapiClient.setMuted($muted) via reflection")
+                    return
                 }
             }
         } catch (e: Throwable) {
-            Log.w("VapiNativeBridge", "Error scanning WebRtcAudioTrack threads: $e")
+            Log.w("VapiNativeBridge", "Error invoking setMuted on vapiClient: $e")
         }
     }
 
@@ -220,18 +229,27 @@ class VapiNativeBridge(
                     Log.w("VapiNativeBridge", "Cannot set isSpeakerphoneOn=true: $e")
                 }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    try {
-                        val speaker = audioManager.availableCommunicationDevices.find {
-                            it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                        }
-                        if (speaker != null) {
-                            audioManager.setCommunicationDevice(speaker)
-                        }
-                    } catch (e: Exception) {}
+                // 2. Đảm bảo micro KHÔNG bị mute phần cứng
+                try {
+                    audioManager.isMicrophoneMute = false
+                } catch (e: Exception) {
+                    Log.w("VapiNativeBridge", "Cannot unmute microphone: $e")
                 }
 
-                // 2. Bỏ cờ MUTE
+                // 3. Xử lý thiết bị giao tiếp âm thanh trên Android 12+ (API 31+)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        // Luôn clearCommunicationDevice() để hệ thống Android tự động định tuyến
+                        // microphone sang thiết bị ngoại vi/USB mic đang cắm, TUYỆT ĐỐI không ép sang TYPE_BUILTIN_SPEAKER
+                        // vì sẽ vô tình ngắt kết nối micro USB trên Android Box / TV.
+                        audioManager.clearCommunicationDevice()
+                        Log.d("VapiNativeBridge", "clearCommunicationDevice() applied to keep USB mic active")
+                    } catch (e: Exception) {
+                        Log.w("VapiNativeBridge", "Error clearing communication device: $e")
+                    }
+                }
+
+                // 4. Bỏ cờ MUTE
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
                         audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_UNMUTE, 0)
@@ -240,7 +258,7 @@ class VapiNativeBridge(
                     }
                 }
 
-                // 3. Mở lại luồng WebRTC & AudioTrack
+                // 5. Mở lại luồng WebRTC & AudioTrack
                 applyWebRtcMute(false)
 
                 // 4. Đặt mức âm lượng tương ứng [minAudibleVoice .. maxVoice]
@@ -262,6 +280,177 @@ class VapiNativeBridge(
         }
     }
 
+    fun ensureMicrophoneEnabled() {
+        try {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager.isMicrophoneMute = false
+            audioManager.isSpeakerphoneOn = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.clearCommunicationDevice()
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val inputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                Log.d("VapiNativeBridge", "ensureMicrophoneEnabled: active input devices (${inputDevices.size}):")
+                for (dev in inputDevices) {
+                    Log.d("VapiNativeBridge", "  -> Input: id=${dev.id}, type=${dev.type}, name=${dev.productName}")
+                }
+            }
+
+            setVapiClientMuted(false)
+
+            val client = vapiClient ?: return
+            val callField = Vapi::class.java.getDeclaredField("call")
+            callField.isAccessible = true
+            val dailyCall = callField.get(client) ?: return
+
+            var invokedInputs = false
+            for (m in dailyCall.javaClass.methods) {
+                if (m.name == "setInputsEnabled") {
+                    m.isAccessible = true
+                    val paramTypes = m.parameterTypes
+                    if (paramTypes.size == 3) {
+                        m.invoke(dailyCall, java.lang.Boolean.FALSE, java.lang.Boolean.TRUE, null)
+                        Log.d("VapiNativeBridge", "Invoked dailyCall.setInputsEnabled(camera=false, microphone=true, null)")
+                        invokedInputs = true
+                        break
+                    } else if (paramTypes.size == 2) {
+                        m.invoke(dailyCall, java.lang.Boolean.FALSE, java.lang.Boolean.TRUE)
+                        Log.d("VapiNativeBridge", "Invoked dailyCall.setInputsEnabled(camera=false, microphone=true)")
+                        invokedInputs = true
+                        break
+                    }
+                }
+            }
+            if (!invokedInputs) {
+                Log.d("VapiNativeBridge", "dailyCall (${dailyCall.javaClass.name}) did not have 2/3 arg setInputsEnabled")
+            }
+        } catch (e: Throwable) {
+            Log.w("VapiNativeBridge", "ensureMicrophoneEnabled exception: $e")
+        }
+    }
+
+    private var isDailyListenerAttached = false
+    private var lastRawTranscriptText: String? = null
+    private var lastRawTranscriptTime: Long = 0L
+    @Volatile
+    private var lastActiveRole: String = ""
+
+    fun attachDailyListener() {
+        val client = vapiClient ?: return
+        if (isDailyListenerAttached) return
+        try {
+            val callField = Vapi::class.java.getDeclaredField("call")
+            callField.isAccessible = true
+            val dailyCall = callField.get(client) ?: return
+
+            val listenerClass = Class.forName("co.daily.CallClientListener")
+            val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                listenerClass.classLoader,
+                arrayOf(listenerClass)
+            ) { _, method, args ->
+                val mName = method.name
+                if (mName == "onAppMessage" && args != null && args.isNotEmpty()) {
+                    val rawJson = args[0] as? String
+                    if (!rawJson.isNullOrBlank()) {
+                        scope.launch(Dispatchers.Main) {
+                            handleRawAppMessage(rawJson)
+                        }
+                    }
+                } else if (mName == "onLocalAudioLevel" && args != null && args.isNotEmpty()) {
+                    val level = (args[0] as? Number)?.toFloat() ?: 0f
+                    if (level > 0.05f) {
+                        Log.d("VapiNativeBridge", "WebRTC Local Mic Audio Level: $level")
+                    }
+                } else if (mName == "onInputsUpdated") {
+                    Log.d("VapiNativeBridge", "WebRTC onInputsUpdated: ${args?.firstOrNull()}")
+                }
+
+                if (method.returnType == java.lang.Boolean.TYPE) return@newProxyInstance false
+                if (method.returnType == java.lang.Integer.TYPE) return@newProxyInstance 0
+                if (method.returnType == java.lang.Long.TYPE) return@newProxyInstance 0L
+                if (method.returnType == java.lang.Float.TYPE) return@newProxyInstance 0.0f
+                if (method.returnType == java.lang.Double.TYPE) return@newProxyInstance 0.0
+                return@newProxyInstance null
+            }
+            val addListenerMethod = dailyCall.javaClass.getMethod("addListener", listenerClass)
+            addListenerMethod.invoke(dailyCall, proxy)
+            isDailyListenerAttached = true
+            Log.d("VapiNativeBridge", "Successfully attached dynamic CallClientListener to intercept raw WebRTC Vapi messages!")
+        } catch (e: Throwable) {
+            Log.w("VapiNativeBridge", "Could not attach dynamic CallClientListener: $e")
+        }
+    }
+
+    private fun handleRawAppMessage(rawJson: String) {
+        val sink = eventSink ?: return
+        try {
+            val json = org.json.JSONObject(rawJson)
+            val type = json.optString("type")
+            when (type) {
+                "transcript" -> {
+                    val role = json.optString("role") // "assistant" or "user"
+                    val transcriptType = json.optString("transcriptType") // "partial" or "final"
+                    val text = if (json.has("transcript")) json.optString("transcript") else json.optString("text")
+                    if (role.isNotBlank()) {
+                        lastActiveRole = role
+                    }
+                    if (!text.isNullOrBlank()) {
+                        lastRawTranscriptText = text.trim()
+                        lastRawTranscriptTime = System.currentTimeMillis()
+                        Log.d("VapiNativeBridge", "Raw transcript intercepted: role='$role', type='$transcriptType', text='$text'")
+                        val data = mapOf(
+                            "event" to "transcript",
+                            "text" to text,
+                            "transcriptType" to transcriptType,
+                            "role" to role,
+                            "raw" to rawJson
+                        )
+                        sink.success(data)
+                    }
+                }
+                "conversation-update" -> {
+                    val messagesArray = json.optJSONArray("messages")
+                    if (messagesArray != null) {
+                        val messages = mutableListOf<Map<String, String>>()
+                        for (i in 0 until messagesArray.length()) {
+                            val msgObj = messagesArray.optJSONObject(i) ?: continue
+                            val role = msgObj.optString("role", "user")
+                            val content = if (msgObj.has("message")) msgObj.optString("message") else msgObj.optString("content")
+                            if (!content.isNullOrBlank()) {
+                                messages.add(mapOf("role" to role, "content" to content))
+                            }
+                        }
+                        Log.d("VapiNativeBridge", "Raw conversation-update intercepted: ${messages.size} messages")
+                        val data = mapOf(
+                            "event" to "conversationUpdate",
+                            "messages" to messages
+                        )
+                        sink.success(data)
+                    }
+                }
+                "speech-update" -> {
+                    val status = json.optString("status") // "started" or "stopped"
+                    val role = json.optString("role") // "assistant" or "user"
+                    val text = json.optString("text")
+                    if (role.isNotBlank()) {
+                        lastActiveRole = role
+                    }
+                    Log.d("VapiNativeBridge", "Raw speech-update intercepted: status='$status', role='$role', text='$text'")
+                    val data = mapOf(
+                        "event" to "speechUpdate",
+                        "status" to status,
+                        "role" to role,
+                        "text" to text
+                    )
+                    sink.success(data)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VapiNativeBridge", "Error parsing raw app message: $e")
+        }
+    }
+
     private fun handleVapiEvent(event: Vapi.Event) {
         val sink = eventSink
         if (sink == null) {
@@ -271,14 +460,20 @@ class VapiNativeBridge(
         scope.launch(Dispatchers.Main) {
             when (event) {
                 is Vapi.Event.CallDidStart -> {
-                    Log.d("VapiNativeBridge", "CallDidStart received -> Syncing voice call volume to music volume")
+                    Log.d("VapiNativeBridge", "CallDidStart received -> Attaching Daily listener, ensuring mic enabled & syncing volume")
+                    ensureMicrophoneEnabled()
+                    attachDailyListener()
                     syncVoiceCallVolumeToMusic()
                     // WebRTC audio session có thể can thiệp lại volume sau khi kết nối,
                     // re-sync sau 500ms và 1500ms để đảm bảo giữ đúng mức âm lượng
                     scope.launch {
                         delay(500)
+                        ensureMicrophoneEnabled()
+                        attachDailyListener()
                         syncVoiceCallVolumeToMusic()
                         delay(1000)
+                        ensureMicrophoneEnabled()
+                        attachDailyListener()
                         syncVoiceCallVolumeToMusic()
                     }
                     val data = mapOf("event" to "callDidStart")
@@ -352,53 +547,30 @@ class VapiNativeBridge(
                     sink.success(data)
                 }
                 is Vapi.Event.Transcript -> {
-                    // Trích xuất toàn bộ fields và methods từ Transcript event
-                    var text = ""
+                    var text = event.text ?: ""
                     var transcriptType = ""
                     var role = ""
-                    val rawData = mutableMapOf<String, Any?>()
                     try {
                         for (f in event.javaClass.declaredFields) {
                             f.isAccessible = true
                             val value = f.get(event)
-                            val fName = f.name
-                            rawData[fName] = value
-                            val lower = fName.lowercase()
-                            if (lower.contains("transcripttype") || (lower.contains("type") && transcriptType.isEmpty())) {
+                            val fName = f.name.lowercase()
+                            if (fName.contains("transcripttype") || (fName.contains("type") && transcriptType.isEmpty())) {
                                 transcriptType = value?.toString() ?: ""
-                            } else if (lower.contains("role") && role.isEmpty()) {
+                            } else if (fName.contains("role") && role.isEmpty()) {
                                 role = value?.toString() ?: ""
-                            } else if ((lower.contains("text") || lower.contains("transcript")) && text.isEmpty()) {
+                            } else if ((fName.contains("text") || fName.contains("transcript")) && text.isEmpty()) {
                                 text = value?.toString() ?: ""
                             }
                         }
+                    } catch (e: Exception) {}
 
-                        // Nếu role vẫn rỗng, thử phân tích chuỗi toString() của Transcript
-                        val eventStr = event.toString()
-                        if (role.isEmpty()) {
-                            val roleMatch = Regex("role[=:]\\s*([a-zA-Z0-9_]+)", RegexOption.IGNORE_CASE).find(eventStr)
-                            if (roleMatch != null) {
-                                role = roleMatch.groupValues[1]
-                            }
-                        }
-                        if (transcriptType.isEmpty()) {
-                            val typeMatch = Regex("type[=:]\\s*([a-zA-Z0-9_]+)", RegexOption.IGNORE_CASE).find(eventStr)
-                            if (typeMatch != null) {
-                                transcriptType = typeMatch.groupValues[1]
-                            }
-                        }
-                        if (text.isEmpty()) {
-                            val textMatch = Regex("text[=:]\\s*([^,)]+)", RegexOption.IGNORE_CASE).find(eventStr)
-                            if (textMatch != null) {
-                                text = textMatch.groupValues[1]
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("VapiNativeBridge", "Error extracting Transcript: $e")
+                    if (role.isBlank() && lastActiveRole.isNotBlank()) {
+                        role = lastActiveRole
                     }
 
-                    Log.d("VapiNativeBridge", "Transcript raw: role='$role', type='$transcriptType', text='$text', rawEvent=$event")
-                    if (text.isNotBlank()) {
+                    // Nếu raw app message vừa emit text này trong 500ms, bỏ qua để tránh trùng lặp
+                    if (text.isNotBlank() && (text.trim() != lastRawTranscriptText || System.currentTimeMillis() - lastRawTranscriptTime > 500)) {
                         val data = mapOf(
                             "event" to "transcript",
                             "text" to text,
@@ -449,6 +621,8 @@ class VapiNativeBridge(
                         val res = client.start(assistantId = assistantId)
                         res.onSuccess {
                             Log.d("VapiNativeBridge", "client.start successful")
+                            ensureMicrophoneEnabled()
+                            attachDailyListener()
                             syncVoiceCallVolumeToMusic()
                             result.success(true)
                         }.onFailure { error ->
@@ -463,6 +637,8 @@ class VapiNativeBridge(
             }
             "stopCall" -> {
                 Log.d("VapiNativeBridge", "stopCall requested -> Stopping Vapi WebRTC client")
+                isDailyListenerAttached = false
+                lastRawTranscriptText = null
                 try {
                     vapiClient?.stop()
                 } catch (e: Exception) {
@@ -485,6 +661,7 @@ class VapiNativeBridge(
                 val muted = call.argument<Boolean>("muted") ?: false
                 Log.d("VapiNativeBridge", "setMuted requested from Flutter: $muted")
                 applyWebRtcMute(muted)
+                setVapiClientMuted(muted)
                 result.success(true)
             }
             "sendMessage" -> {

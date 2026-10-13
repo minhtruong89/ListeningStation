@@ -63,13 +63,17 @@ class VapiService {
           final List<VapiTranscriptMessage> list = [];
           for (var item in rawMessages) {
             if (item is Map) {
-              final role = item['role']?.toString();
-              final content = item['content']?.toString();
-              if (role != null && content != null && content.trim().isNotEmpty) {
-                final speaker = (role == 'assistant' || role == 'bot')
+              final role = item['role']?.toString().toLowerCase() ?? '';
+              final content = item['content']?.toString() ?? item['message']?.toString();
+              if (content != null && content.trim().isNotEmpty) {
+                final speaker = (role == 'assistant' || role == 'bot' || role == 'model')
                     ? 'Trạm Lắng Nghe'
                     : 'Người cần giúp đỡ';
-                list.add(VapiTranscriptMessage(speaker: speaker, text: content.trim()));
+                list.add(VapiTranscriptMessage(
+                  speaker: speaker,
+                  text: content.trim(),
+                  isConversationUpdate: true,
+                ));
               }
             }
           }
@@ -87,29 +91,41 @@ class VapiService {
 
         if (text.isNotEmpty) {
           final textLower = text.toLowerCase();
-          final isAssistant = rawRole.contains('assistant') ||
-              rawRole.contains('bot') ||
-              rawRole.contains('model') ||
-              rawEventStr.contains('role=assistant') ||
-              rawEventStr.contains('role: assistant') ||
-              rawEventStr.contains('speaker=assistant') ||
-              textLower.contains('con') ||
-              textLower.contains('cô/bác') ||
-              textLower.contains('cô bác') ||
-              textLower.contains('trạm lắng nghe') ||
-              textLower.contains('quỹ bông sen') ||
-              textLower.contains('đồng ý') && textLower.contains('nói') ||
-              textLower.contains('hoàn cảnh') && textLower.contains('nghe') ||
-              textLower.contains('xem xét hỗ trợ') ||
-              textLower.contains('tóm tắt');
+          String speaker;
+          if (rawRole.isNotEmpty) {
+            if (rawRole == 'assistant' || rawRole == 'bot' || rawRole == 'model') {
+              speaker = 'Trạm Lắng Nghe';
+            } else if (rawRole == 'user') {
+              speaker = 'Người cần giúp đỡ';
+            } else {
+              speaker = rawRole.contains('assistant') ? 'Trạm Lắng Nghe' : 'Người cần giúp đỡ';
+            }
+          } else {
+            final isAssistant = rawRole.contains('assistant') ||
+                rawRole.contains('bot') ||
+                rawRole.contains('model') ||
+                rawEventStr.contains('role=assistant') ||
+                rawEventStr.contains('role: assistant') ||
+                rawEventStr.contains('speaker=assistant') ||
+                textLower.contains('con') ||
+                textLower.contains('cô/bác') ||
+                textLower.contains('cô bác') ||
+                textLower.contains('trạm lắng nghe') ||
+                textLower.contains('quỹ bông sen') ||
+                textLower.contains('đồng ý') && textLower.contains('nói') ||
+                textLower.contains('hoàn cảnh') && textLower.contains('nghe') ||
+                textLower.contains('xem xét hỗ trợ') ||
+                textLower.contains('tóm tắt');
+            speaker = isAssistant ? 'Trạm Lắng Nghe' : 'Người cần giúp đỡ';
+          }
 
-          final speaker = isAssistant ? 'Trạm Lắng Nghe' : 'Người cần giúp đỡ';
           LogService.log("[VapiService] Live transcript -> [$speaker] (role: '$rawRole', raw: '$rawEventStr'): $text");
           _transcriptController.add([
             VapiTranscriptMessage(
               speaker: speaker,
               text: text,
               isPartial: isPartial,
+              isConversationUpdate: false,
             )
           ]);
         }

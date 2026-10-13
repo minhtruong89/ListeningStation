@@ -62,6 +62,105 @@ class VapiNativeBridge(
         }
     }
 
+    @Volatile
+    private var isMuted = false
+
+    fun applyWebRtcMute(mute: Boolean) {
+        isMuted = mute
+        Log.d("VapiNativeBridge", "applyWebRtcMute: mute=$mute")
+
+        // 1. Static call trên legacy WebRtcAudioTrack (org.webrtc.voiceengine.WebRtcAudioTrack)
+        try {
+            val cls = Class.forName("org.webrtc.voiceengine.WebRtcAudioTrack")
+            val method = cls.getMethod("setSpeakerMute", Boolean::class.javaPrimitiveType)
+            method.invoke(null, mute)
+            Log.d("VapiNativeBridge", "Invoked static org.webrtc.voiceengine.WebRtcAudioTrack.setSpeakerMute($mute)")
+        } catch (e: Throwable) {}
+
+        // 2. Quét vapiClient và callClient nếu có
+        try {
+            val client = vapiClient
+            if (client != null) {
+                muteFieldsOfObject(client, mute)
+                try {
+                    val callField = client.javaClass.getDeclaredField("call")
+                    callField.isAccessible = true
+                    val callClient = callField.get(client)
+                    if (callClient != null) {
+                        muteFieldsOfObject(callClient, mute)
+                    }
+                } catch (e: Throwable) {}
+            }
+        } catch (e: Throwable) {}
+
+        // 3. Quét tất cả active Threads để mute trực tiếp WebRtcAudioTrack và android.media.AudioTrack
+        try {
+            val threads = Thread.getAllStackTraces().keys
+            for (t in threads) {
+                val tClass = t.javaClass.name
+                val tName = t.name
+                if (tClass.contains("WebRtc") || tClass.contains("AudioTrack") || 
+                    tName.contains("WebRtc") || tName.contains("AudioTrack")) {
+                    muteFieldsOfObject(t, mute)
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w("VapiNativeBridge", "Error scanning WebRtcAudioTrack threads: $e")
+        }
+    }
+
+    private fun muteFieldsOfObject(obj: Any, mute: Boolean) {
+        try {
+            var currClass: Class<*>? = obj.javaClass
+            while (currClass != null && currClass != Any::class.java) {
+                for (f in currClass.declaredFields) {
+                    try {
+                        f.isAccessible = true
+                        val value = f.get(obj) ?: continue
+
+                        // Nếu là AudioTrack phần cứng
+                        if (value is android.media.AudioTrack) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                value.setVolume(if (mute) 0.0f else 1.0f)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                value.setStereoVolume(if (mute) 0.0f else 1.0f, if (mute) 0.0f else 1.0f)
+                            }
+                            Log.d("VapiNativeBridge", "Applied AudioTrack.setVolume: ${if (mute) 0.0f else 1.0f}")
+                        }
+
+                        // Nếu field là WebRtcAudioTrack
+                        val valClassName = value.javaClass.name
+                        if (valClassName.contains("WebRtcAudioTrack")) {
+                            try {
+                                val m = value.javaClass.getMethod("setSpeakerMute", Boolean::class.javaPrimitiveType)
+                                m.invoke(value, mute)
+                                Log.d("VapiNativeBridge", "Invoked setSpeakerMute($mute) on $valClassName")
+                            } catch (e: Throwable) {}
+
+                            // Lấy AudioTrack bên trong WebRtcAudioTrack nếu có
+                            try {
+                                val atField = value.javaClass.getDeclaredField("audioTrack")
+                                atField.isAccessible = true
+                                val track = atField.get(value) as? android.media.AudioTrack
+                                if (track != null) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                        track.setVolume(if (mute) 0.0f else 1.0f)
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        track.setStereoVolume(if (mute) 0.0f else 1.0f, if (mute) 0.0f else 1.0f)
+                                    }
+                                    Log.d("VapiNativeBridge", "Applied track.setVolume inside $valClassName: ${if (mute) 0.0f else 1.0f}")
+                                }
+                            } catch (e: Throwable) {}
+                        }
+                    } catch (e: Throwable) {}
+                }
+                currClass = currClass.superclass
+            }
+        } catch (e: Throwable) {}
+    }
+
     fun syncVoiceCallVolumeToMusic() {
         try {
             val musicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -83,7 +182,10 @@ class VapiNativeBridge(
                 // Mức 0 (hoặc khi hệ thống bấm MUTE): TẮT TIẾNG HOÀN TOÀN (DEAD SILENT)
                 Log.d("VapiNativeBridge", "syncVoiceCallVolumeToMusic: musicVol=$musicVol, isMusicMuted=$isMusicMuted -> SILENCE / MUTE voice call")
 
-                // 1. Tắt đường phát loa ngoài (ngắt phần cứng loa ngoài)
+                // 1. Can thiệp trực tiếp WebRTC & AudioTrack hardware buffer (Tắt hẳn tiếng digital)
+                applyWebRtcMute(true)
+
+                // 2. Tắt đường phát loa ngoài (ngắt phần cứng loa ngoài)
                 try {
                     audioManager.isSpeakerphoneOn = false
                 } catch (e: Exception) {
@@ -96,7 +198,12 @@ class VapiNativeBridge(
                     } catch (e: Exception) {}
                 }
 
-                // 2. Kích hoạt cờ MUTE cho STREAM_VOICE_CALL
+                // 3. Đưa âm lượng STREAM_VOICE_CALL về mức tối thiểu
+                try {
+                    audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, 0, 0)
+                } catch (e: Exception) {}
+
+                // 4. Kích hoạt cờ MUTE cho STREAM_VOICE_CALL nếu hệ thống hỗ trợ
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
                         audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_MUTE, 0)
@@ -104,9 +211,6 @@ class VapiNativeBridge(
                         Log.w("VapiNativeBridge", "Cannot adjustStreamVolume MUTE: $e")
                     }
                 }
-
-                // TUYỆT ĐỐI KHÔNG gọi setStreamVolume(STREAM_VOICE_CALL, 0) ở đây vì Android AudioPolicy 
-                // sẽ tự động clamp 0 lên index 1 (mIndexMin) và xóa cờ mute, khiến loa vẫn phát tiếng ở mức 1.
             } else {
                 // Âm lượng > 0: BẬT TIẾNG TRỞ LẠI
                 // 1. Mở lại loa ngoài
@@ -136,7 +240,10 @@ class VapiNativeBridge(
                     }
                 }
 
-                // 3. Đặt mức âm lượng tương ứng [minAudibleVoice .. maxVoice]
+                // 3. Mở lại luồng WebRTC & AudioTrack
+                applyWebRtcMute(false)
+
+                // 4. Đặt mức âm lượng tương ứng [minAudibleVoice .. maxVoice]
                 val minAudibleVoice = if (maxVoice >= 3) 2 else 1
                 val targetVoiceVol = if (maxMusic > 1 && maxVoice > minAudibleVoice) {
                     val fraction = (musicVol - 1).toFloat() / (maxMusic - 1).toFloat()
@@ -206,6 +313,9 @@ class VapiNativeBridge(
                     sink.success(data)
                 }
                 is Vapi.Event.SpeechUpdate -> {
+                    if (isMuted) {
+                        applyWebRtcMute(true)
+                    }
                     val data = mapOf(
                         "event" to "speechUpdate",
                         "text" to (event.text ?: "")
@@ -356,6 +466,12 @@ class VapiNativeBridge(
             "syncVolume" -> {
                 Log.d("VapiNativeBridge", "syncVolume requested from Flutter")
                 syncVoiceCallVolumeToMusic()
+                result.success(true)
+            }
+            "setMuted" -> {
+                val muted = call.argument<Boolean>("muted") ?: false
+                Log.d("VapiNativeBridge", "setMuted requested from Flutter: $muted")
+                applyWebRtcMute(muted)
                 result.success(true)
             }
             "sendMessage" -> {

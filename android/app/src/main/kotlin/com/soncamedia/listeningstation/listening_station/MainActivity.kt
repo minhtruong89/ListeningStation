@@ -71,15 +71,7 @@ class MainActivity : FlutterActivity() {
 
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val action = intent?.action
-            if ("android.media.VOLUME_CHANGED_ACTION" == action ||
-                "android.media.STREAM_MUTE_CHANGED_ACTION" == action ||
-                AudioManager.RINGER_MODE_CHANGED_ACTION == action) {
-                val streamType = intent?.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) ?: -1
-                if (streamType == AudioManager.STREAM_MUSIC || streamType == -1 || action != "android.media.VOLUME_CHANGED_ACTION") {
-                    vapiBridge?.syncVoiceCallVolumeToMusic()
-                }
-            }
+            vapiBridge?.syncVoiceCallVolumeToMusic()
         }
     }
 
@@ -164,8 +156,44 @@ class MainActivity : FlutterActivity() {
                 vapiBridge?.syncVoiceCallVolumeToMusic()
             }, 300)
             return true
+        } else if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_MUTE || keyCode == android.view.KeyEvent.KEYCODE_MUTE) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
+            } else {
+                val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                if (currentVol > 0) {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI)
+                } else {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 5, AudioManager.FLAG_SHOW_UI)
+                }
+            }
+            vapiBridge?.syncVoiceCallVolumeToMusic()
+            Handler(Looper.getMainLooper()).postDelayed({
+                vapiBridge?.syncVoiceCallVolumeToMusic()
+            }, 50)
+            Handler(Looper.getMainLooper()).postDelayed({
+                vapiBridge?.syncVoiceCallVolumeToMusic()
+            }, 150)
+            Handler(Looper.getMainLooper()).postDelayed({
+                vapiBridge?.syncVoiceCallVolumeToMusic()
+            }, 300)
+            return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent?): Boolean {
+        if (event?.action == android.view.KeyEvent.ACTION_DOWN) {
+            val keyCode = event.keyCode
+            if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+                keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN ||
+                keyCode == android.view.KeyEvent.KEYCODE_VOLUME_MUTE ||
+                keyCode == android.view.KeyEvent.KEYCODE_MUTE) {
+                return onKeyDown(keyCode, event)
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onDestroy() {

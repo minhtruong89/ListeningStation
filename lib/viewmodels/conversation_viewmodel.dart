@@ -607,6 +607,7 @@ class ConversationViewModel extends ChangeNotifier {
   void toggleMute() {
     _isMuted = !_isMuted;
     _speechService.isMuted = _isMuted;
+    _vapiService.setMuted(_isMuted);
     notifyListeners();
   }
 

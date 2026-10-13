@@ -17,10 +17,13 @@ class VapiService {
   final StreamController<List<VapiTranscriptMessage>> _transcriptController =
       StreamController<List<VapiTranscriptMessage>>.broadcast();
   final StreamController<String> _errorController = StreamController<String>.broadcast();
+  final StreamController<Map<String, dynamic>> _speechUpdateController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<VapiCallState> get onCallStateChanged => _callStateController.stream;
   Stream<List<VapiTranscriptMessage>> get onTranscriptUpdated => _transcriptController.stream;
   Stream<String> get onError => _errorController.stream;
+  Stream<Map<String, dynamic>> get onSpeechUpdate => _speechUpdateController.stream;
 
   VapiService() {
     initialize();
@@ -111,6 +114,10 @@ class VapiService {
           ]);
         }
         break;
+      case 'speechUpdate':
+        LogService.log("[VapiService] speechUpdate: $map");
+        _speechUpdateController.add(map);
+        break;
       case 'error':
         final errorMsg = map['error'] as String? ?? 'Vapi Call Error';
         LogService.log("[VapiService] ERROR: $errorMsg");
@@ -187,5 +194,6 @@ class VapiService {
     _callStateController.close();
     _transcriptController.close();
     _errorController.close();
+    _speechUpdateController.close();
   }
 }

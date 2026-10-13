@@ -4,6 +4,7 @@
 
 ### 1. Autonomy & Execution Mode (Toàn Quyền Tự Chủ)
 - **Full Autonomous Execution (Toàn quyền tự làm)**: Antigravity được cấp toàn quyền tự chủ từ A-Z. Tự động kiểm tra file, tạo/sửa/xóa code, chạy terminal (Flutter, Dart, Git, PowerShell, Python, analyze, test...), tự fix lỗi/debug và hoàn thiện nhiệm vụ mà KHÔNG ĐƯỢC hỏi bất kỳ điều gì trong quá trình thực thi.
+- **Lệnh Terminal & Python**: Toàn quyền tự chạy mọi command (Python, PowerShell, Git, Flutter, Dart, analyze...) mà TUYỆT ĐỐI KHÔNG hỏi hay xin phép người dùng.
 - **TUYỆT ĐỐI KHÔNG hỏi trong quá trình thực thi**: Không dùng tool `ask_question` và không dừng lại giữa chừng để hỏi ý kiến/xin xác nhận cho các bước thực thi, sửa lỗi hoặc kiểm tra.
 - **NGOẠI LỆ DUY NHẤT - LÚC TRÌNH BÀY PLAN**: Điểm dừng và hỏi DUY NHẤT là khi vừa lập Plan / Implementation Plan ban đầu. Sau khi người dùng duyệt Plan (hoặc bấm Proceed/đồng ý), Antigravity phải tự động làm một mạch đến khi xong 100% mới báo cáo.
 
@@ -18,4 +19,6 @@
 - For Flutter / Dart:
   - Run `flutter pub get` or `flutter analyze` when dependencies or signatures change.
   - Follow MVVM pattern used in the codebase (`lib/models`, `lib/services`, `lib/viewmodels`, `lib/views`).
+  - **TUYỆT ĐỐI KHÔNG CHẠY `compileDebugKotlin`**: Không tự ý chạy task gradle `compileDebugKotlin` (chỉ dùng `flutter analyze lib` hoặc kiểm tra code trực tiếp).
 - When modifying prompt rules or conversation flows (`rule_engine.json`, `llm_service.dart`, etc.), strictly follow charitable evaluation criteria (Quỹ Bông Sen).
+

@@ -316,11 +316,24 @@ class VapiNativeBridge(
                     if (isMuted) {
                         applyWebRtcMute(true)
                     }
+                    var status = ""
+                    var role = ""
+                    try {
+                        for (f in event.javaClass.declaredFields) {
+                            f.isAccessible = true
+                            val fName = f.name.lowercase()
+                            val fVal = f.get(event)?.toString() ?: ""
+                            if (fName.contains("status")) status = fVal
+                            if (fName.contains("role")) role = fVal
+                        }
+                    } catch (e: Exception) {}
                     val data = mapOf(
                         "event" to "speechUpdate",
+                        "status" to status,
+                        "role" to role,
                         "text" to (event.text ?: "")
                     )
-                    Log.d("VapiNativeBridge", "SpeechUpdate: text=${event.text}")
+                    Log.d("VapiNativeBridge", "SpeechUpdate: status=$status, role=$role, text=${event.text}")
                     sink.success(data)
                 }
                 is Vapi.Event.FunctionCall -> {

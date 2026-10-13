@@ -664,6 +664,12 @@ class VapiNativeBridge(
                 setVapiClientMuted(muted)
                 result.success(true)
             }
+            "setSpeakerMuted" -> {
+                val muted = call.argument<Boolean>("muted") ?: false
+                Log.d("VapiNativeBridge", "setSpeakerMuted requested from Flutter: $muted (speaker only, microphone stays active)")
+                applyWebRtcMute(muted)
+                result.success(true)
+            }
             "sendMessage" -> {
                 val message = call.argument<String>("message") ?: ""
                 Log.d("VapiNativeBridge", "sendMessage requested: '$message'")

@@ -192,6 +192,14 @@ class VapiService {
     }
   }
 
+  Future<void> setSpeakerMuted(bool muted) async {
+    try {
+      await _methodChannel.invokeMethod('setSpeakerMuted', {'muted': muted});
+    } catch (e) {
+      debugPrint("[VapiService] Error setting speaker muted: $e");
+    }
+  }
+
   Future<bool> sendMessage(String message) async {
     try {
       LogService.log("[VapiService] Sending message: $message");

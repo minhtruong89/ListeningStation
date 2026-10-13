@@ -85,6 +85,13 @@ class ConversationViewModel extends ChangeNotifier {
     _isStorytellingActive = true;
     _storytellingStartTime = DateTime.now();
     _storytellingRemainingSeconds = customSeconds ?? storytellingDurationSeconds;
+
+    // Tắt tiếng loa trợ lý trong suốt thời gian kể tự do để bảo đảm người dùng không bị xen ngang/cắt lời
+    if (flagVAPI) {
+      LogService.log("[ConversationVM] Muting assistant speaker for free storytelling phase");
+      _vapiService.setSpeakerMuted(true);
+    }
+
     notifyListeners();
 
     _storytellingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -101,10 +108,22 @@ class ConversationViewModel extends ChangeNotifier {
     _storytellingTimer?.cancel();
     if (_isStorytellingActive) {
       _isStorytellingActive = false;
+
+      // Mở lại tiếng loa trợ lý ngay sau khi kết thúc giai đoạn kể tự do
+      if (flagVAPI) {
+        LogService.log("[ConversationVM] Unmuting assistant speaker after free storytelling phase");
+        _vapiService.setSpeakerMuted(false);
+      }
+
+      // Chốt dứt điểm lượt nói của người dùng trước khi trợ lý bắt đầu Giai đoạn 3
+      if (_activeSpeaker == 'Người cần giúp đỡ') {
+        _settleActiveTurn();
+      }
+
       notifyListeners();
 
       if (notifyServer) {
-        // Tự động append câu "Tôi đã kể xong." và gửi sang Vapi để bắt đầu Giai đoạn 2
+        // Tự động append câu "Tôi đã kể xong." và gửi sang Vapi để bắt đầu Giai đoạn 3
         _messages.add(ConversationMessage(
           sender: "Người cần giúp đỡ",
           content: "Tôi đã kể xong.",
@@ -361,6 +380,16 @@ class ConversationViewModel extends ChangeNotifier {
         lower.contains('con xin') ||
         lower.contains('con cảm ơn') ||
         lower.contains('cho con hỏi') ||
+        lower.contains('hỏi thêm') ||
+        lower.contains('công việc hay nghề nghiệp') ||
+        lower.contains('nghề nghiệp của') ||
+        lower.contains('công việc của') ||
+        lower.contains('thu nhập của') ||
+        lower.contains('bao nhiêu mỗi tháng') ||
+        lower.contains('bao nhiêu mỗi ngày') ||
+        lower.contains('vẫn đang nghe') ||
+        lower.contains('kể tiếp') ||
+        lower.contains('cô bác chia sẻ') ||
         lower.contains('cô bác') ||
         lower.contains('chú ơi') ||
         lower.contains('bác ơi') ||
@@ -720,6 +749,33 @@ class ConversationViewModel extends ChangeNotifier {
 
         // Xác định người nói cho mẩu tin mới
         final incomingSpeaker = _determineSpeakerForIncoming(newText, hintSpeaker: vm.speaker);
+
+        // Trong giai đoạn kể tự do (Storytelling), tuyệt đối chặn mọi câu chen ngang từ trợ lý (như "Dạ con vẫn đang nghe...", "kể tiếp đi ạ...")
+        if (_isStorytellingActive && incomingSpeaker == 'Trạm Lắng Nghe') {
+          LogService.log("[ConversationVM] Suppressed assistant interruption during storytelling: '$newText'");
+          continue;
+        }
+
+        // Kiểm tra từ khóa hoàn tất lời kể từ người dùng trong giai đoạn kể tự do
+        if (_isStorytellingActive && incomingSpeaker == 'Người cần giúp đỡ') {
+          final lower = newText.toLowerCase();
+          final bool isFinishedKeyword = lower.contains("tôi đã kể xong") ||
+              lower.contains("đã xong") ||
+              lower.contains("đã kể xong") ||
+              lower.contains("tôi kể xong rồi") ||
+              lower.contains("kể xong rồi") ||
+              lower.contains("con đã kể xong") ||
+              lower.contains("kể hết rồi") ||
+              lower.contains("hết rồi") ||
+              lower.contains("kể xong");
+
+          if (isFinishedKeyword &&
+              _storytellingStartTime != null &&
+              DateTime.now().difference(_storytellingStartTime!).inSeconds >= 2) {
+            LogService.log("[ConversationVM] Detected finish keyword '$newText' during live streaming -> Stopping storytelling phase");
+            stopStorytellingPhase(notifyServer: false);
+          }
+        }
 
         // Nếu người nói đổi vai (ví dụ: AI nói xong, người dùng bắt đầu nói):
         if (_activeSpeaker.isNotEmpty && _activeSpeaker != incomingSpeaker) {

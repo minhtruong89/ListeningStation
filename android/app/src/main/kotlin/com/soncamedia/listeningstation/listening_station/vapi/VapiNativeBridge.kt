@@ -66,7 +66,6 @@ class VapiNativeBridge(
     private var isMuted = false
     @Volatile
     private var isSpeakerMutedForStorytelling = false
-    private var savedVoiceVolume: Int = -1
 
     fun applyWebRtcMute(mute: Boolean) {
         isMuted = mute
@@ -532,7 +531,6 @@ class VapiNativeBridge(
                             } catch (e: Exception) {}
                         }
                         isSpeakerMutedForStorytelling = false
-                        savedVoiceVolume = -1
 
                         Log.d("VapiNativeBridge", "Starting Vapi call with assistantId: $assistantId (100% Vapi Dashboard setup)")
                         syncVoiceCallVolumeToMusic()
@@ -556,7 +554,6 @@ class VapiNativeBridge(
             "stopCall" -> {
                 Log.d("VapiNativeBridge", "stopCall requested -> Stopping Vapi WebRTC client")
                 isSpeakerMutedForStorytelling = false
-                savedVoiceVolume = -1
                 applyWebRtcMute(false)
                 try {
                     vapiClient?.stop()
@@ -608,14 +605,32 @@ class VapiNativeBridge(
                         try {
                             audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_UNMUTE, 0)
                         } catch (e: Exception) {}
+                        try {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                        } catch (e: Exception) {}
                     }
+                    isMuted = false
                     applyWebRtcMute(false)
-                    val vol = if (savedVoiceVolume > 0) savedVoiceVolume else 3
+
+                    try {
+                        audioManager.isSpeakerphoneOn = true
+                    } catch (e: Exception) {}
+
+                    val maxVoice = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                    val vol = if (savedVoiceVolume > 0) savedVoiceVolume else Math.max(1, (maxVoice * 0.8).toInt())
                     savedVoiceVolume = -1
                     try {
                         audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, vol, 0)
                     } catch (e: Exception) {}
-                    syncVoiceCallVolumeToMusic()
+
+                    val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    val curMusic = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    if (curMusic <= 0 && maxMusic > 0) {
+                        try {
+                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, Math.max(1, (maxMusic * 0.7).toInt()), 0)
+                        } catch (e: Exception) {}
+                    }
+
                     ensureMicrophoneEnabled()
                 }
                 result.success(true)

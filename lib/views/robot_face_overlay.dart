@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/speech_service.dart';
+import '../viewmodels/main_viewmodel.dart';
 
 class RobotFaceOverlay extends StatefulWidget {
   final Widget child;
@@ -54,8 +56,19 @@ class _RobotFaceOverlayState extends State<RobotFaceOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_isVisible) {
+    final mainVm = context.watch<MainViewModel?>();
+    final isResultView = mainVm?.currentStage == AppStage.result;
+
+    // Trong ResultView: KHÔNG hiển thị animation face
+    if (isResultView) {
       return widget.child;
+    }
+
+    // Các view khác (SplashView, AuthView, ConversationView):
+    // Luôn đảm bảo khuôn mặt robot được hiển thị lên nếu chưa hiện
+    if (!_isVisible) {
+      _isVisible = true;
+      SpeechService.flagSendSignalLocal = true;
     }
 
     return Stack(

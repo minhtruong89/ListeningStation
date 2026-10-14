@@ -103,7 +103,10 @@ class VapiService {
               textLower.contains('quỹ bông sen') ||
               textLower.contains('trạm lắng nghe') ||
               textLower.contains('cô bác đã kể xong') ||
-              textLower.contains('đã kể xong') ||
+              textLower.contains('bác đã kể xong') ||
+              textLower.contains('chú đã kể xong') ||
+              textLower.contains('anh đã kể xong') ||
+              textLower.contains('chị đã kể xong') ||
               textLower.contains('đúng không ạ') ||
               textLower.contains('bao nhiêu ạ') ||
               textLower.contains('được bao lâu') ||

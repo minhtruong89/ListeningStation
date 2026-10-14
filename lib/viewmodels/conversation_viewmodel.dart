@@ -139,7 +139,6 @@ class ConversationViewModel extends ChangeNotifier {
         lower.contains("chú đã kể xong") ||
         lower.contains("anh đã kể xong") ||
         lower.contains("chị đã kể xong") ||
-        lower.contains("đã kể xong") ||
         lower.contains("con đã ghi nhận thông tin") ||
         lower.contains("con xin ghi nhận thông tin") ||
         lower.contains("ghi nhận thông tin cô bác") ||
@@ -188,7 +187,7 @@ class ConversationViewModel extends ChangeNotifier {
           ? DateTime.now().difference(_storytellingLastTextUpdate!).inMilliseconds
           : 9999;
 
-      if (sinceLastUpdate >= 600) {
+      if (sinceLastUpdate >= 1000) {
         LogService.log("[ConversationVM] Storytelling invitation speech stabilized -> Triggering startStorytellingPhase");
         _triggerStorytellingStart();
       } else {
@@ -251,6 +250,19 @@ class ConversationViewModel extends ChangeNotifier {
     if (flagVAPI) {
       LogService.log("[ConversationVM] Ensuring assistant speaker unmuted after storytelling (wasActive: $wasActive)");
       _vapiService.setSpeakerMuted(false);
+      // Bổ sung gọi lại sau 300ms và 800ms để đảm bảo các luồng WebRTC AudioTrack mới
+      // từ server Vapi được mở âm lượng đầy đủ
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!_isStorytellingActive && flagVAPI) {
+          _vapiService.setSpeakerMuted(false);
+        }
+      });
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (!_isStorytellingActive && flagVAPI) {
+          _vapiService.setSpeakerMuted(false);
+          _vapiService.syncVolume();
+        }
+      });
     }
 
     notifyListeners();
@@ -691,6 +703,13 @@ class ConversationViewModel extends ChangeNotifier {
       final status = (event['status']?.toString() ?? '').toLowerCase();
       final role = (event['role']?.toString() ?? '').toLowerCase();
       LogService.log("[ConversationVM] SpeechUpdate received: role='$role', status='$status'");
+
+      // Đảm bảo mở loa khi trợ lý bắt đầu nói sau kể tự do
+      if (!_isStorytellingActive && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
+        if (status.contains('started')) {
+          _vapiService.setSpeakerMuted(false);
+        }
+      }
 
       // Xử lý khi AI hoàn tất nói toàn bộ câu mời kể tự do
       if (_isPendingStorytellingStart && !_isStorytellingActive) {

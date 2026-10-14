@@ -267,7 +267,7 @@ class _ResultViewState extends State<ResultView> {
                                                       .withValues(alpha: 0.3)),
                                             ),
                                             child: Text(
-                                              "Hệ số giải ngân: ${(resultVm.disbursementMultiplier * 100).toStringAsFixed(0)}%",
+                                              "Giải ngân: ${(resultVm.disbursementMultiplier * 100).toStringAsFixed(0)}%",
                                               style: TextStyle(
                                                 color: resultVm.isCaseClosed
                                                     ? AppStyles.errorColor

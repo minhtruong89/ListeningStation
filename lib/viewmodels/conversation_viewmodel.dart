@@ -506,6 +506,11 @@ class ConversationViewModel extends ChangeNotifier {
 
   void _initVapi() {
     debugPrint("[ConversationVM] Setting up Vapi listeners & starting call...");
+    _isMuted = false;
+    if (flagVAPI) {
+      _vapiService.setMuted(false);
+      _vapiService.setSpeakerMuted(false);
+    }
     _vapiTranscriptSub?.cancel();
     _vapiStateSub?.cancel();
     _vapiSpeechUpdateSub?.cancel();
@@ -787,6 +792,8 @@ class ConversationViewModel extends ChangeNotifier {
         _isProcessing = false;
         _vapiService.syncVolume();
         _vapiService.setSpeakerMuted(false);
+        _vapiService.setMuted(false);
+        _isMuted = false;
       } else if (state == VapiCallState.ended || state == VapiCallState.error) {
         _isProcessing = false;
         SpeechService.sendAnimationFace("SILIENCE");
@@ -935,6 +942,11 @@ class ConversationViewModel extends ChangeNotifier {
 
   Future<void> startVapiCall() async {
     _speechService.stop();
+    _isMuted = false;
+    if (flagVAPI) {
+      _vapiService.setMuted(false);
+      _vapiService.setSpeakerMuted(false);
+    }
     if (Platform.isAndroid) {
       try {
         final status = await Permission.microphone.status;
@@ -1262,11 +1274,13 @@ class ConversationViewModel extends ChangeNotifier {
     _scoringResult = null;
     _currentSessionName = null;
     _currentSessionLogFile = null;
+    _isMuted = false;
     notifyListeners();
 
     // Dừng cuộc gọi Vapi khi dọn dẹp hội thoại, không tự động gọi lại ở đây để tránh phát tiếng ngoài màn hình
     if (flagVAPI) {
       _vapiService.setMuted(false);
+      _vapiService.setSpeakerMuted(false);
       _vapiService.stopCall();
       _vapiTranscriptSub?.cancel();
       _vapiStateSub?.cancel();

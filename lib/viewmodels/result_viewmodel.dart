@@ -16,6 +16,7 @@ class ResultViewModel extends ChangeNotifier {
   bool _isResultReady = false;
   bool _isCalculating = false;
   bool _isCaseClosed = false;
+  bool _isInsufficient = false;
   Map<String, dynamic>? _lastScoringData;
 
   ResultViewModel(this._ruleEngine, this._llmService, [this._conversationViewModel]) {
@@ -29,6 +30,7 @@ class ResultViewModel extends ChangeNotifier {
   bool get isResultReady => _isResultReady;
   bool get isCalculating => _isCalculating;
   bool get isCaseClosed => _isCaseClosed;
+  bool get isInsufficient => _isInsufficient;
   Map<String, dynamic>? get lastScoringData => _lastScoringData;
 
   void setConversationViewModel(ConversationViewModel vm) {
@@ -57,6 +59,7 @@ class ResultViewModel extends ChangeNotifier {
     _isCalculating = true;
     _isResultReady = false;
     _isCaseClosed = false;
+    _isInsufficient = false;
     _distressScore = "Đang tính điểm...";
     notifyListeners();
 
@@ -72,7 +75,13 @@ class ResultViewModel extends ChangeNotifier {
           scoreStr.toUpperCase().contains("TẠM DỪNG - ĐÓNG CA") ||
           scoreStr.toUpperCase().contains("KHÔNG ĐÁP ỨNG TÍNH CHÍNH ĐÁNG");
 
+      final bool isInsufficient = statusText.toUpperCase().contains("CHƯA ĐỦ THÔNG TIN") ||
+          statusText.toUpperCase().contains("KHÔNG ĐỦ THÔNG TIN") ||
+          statusText.toUpperCase().contains("THIẾU THÔNG TIN") ||
+          scoreStr.toUpperCase().contains("TRẠNG THÁI: CHƯA ĐỦ THÔNG TIN");
+
       _isCaseClosed = hasCloseSignal;
+      _isInsufficient = isInsufficient;
 
       // Trích xuất các trường chi tiết
       final emergencyText = _extractSection(scoreStr, RegExp(r'(?:Emergency|Mức độ khẩn cấp)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
@@ -94,7 +103,7 @@ class ResultViewModel extends ChangeNotifier {
       double maxLimit = _llmService.caseOperatorMax;
 
       if (_isCaseClosed) {
-        // TẦNG BẢO VỆ KÍCH HOẠT: TẠM DỪNG - ĐÓNG CA (Số tiền giải ngân = 0)
+        // TẦNG BẢO VỆ 1 KÍCH HOẠT: TẠM DỪNG - ĐÓNG CA (Số tiền giải ngân = 0)
         _score = 0.0;
         _disbursementMultiplier = 0.0;
         proposedAmount = _llmService.flagOperatorExact ? _llmService.caseOperatorExact : 0.0;
@@ -103,6 +112,25 @@ class ResultViewModel extends ChangeNotifier {
         final reason = conclusionText.isNotEmpty
             ? conclusionText
             : "Ca bị TẠM DỪNG - ĐÓNG CA do phát hiện dấu hiệu quậy phá, mục đích không chính đáng (trả nợ cá nhân, cờ bạc, rượu chè...), hoặc không có nhu cầu hỗ trợ tài chính (chỉ cần tư vấn tâm lý).";
+
+        _decision = RuleResult(
+          isEligible: false,
+          approvedAmount: 0.0,
+          explanation: reason,
+          computedAt: DateTime.now(),
+        );
+
+        _isResultReady = true;
+      } else if (isInsufficient) {
+        // TẦNG BẢO VỆ 2 KÍCH HOẠT: CHƯA ĐỦ THÔNG TIN (Số tiền giải ngân = 0, điểm = 0)
+        _score = 0.0;
+        _disbursementMultiplier = 0.0;
+        proposedAmount = _llmService.flagOperatorExact ? _llmService.caseOperatorExact : 0.0;
+        finalAmount = 0.0;
+
+        final reason = conclusionText.isNotEmpty
+            ? conclusionText
+            : "Hồ sơ chưa đủ thông tin bắt buộc để xét duyệt hỗ trợ (chưa có thông tin khó khăn cụ thể, chưa nêu nhu cầu cần giúp đỡ, hoặc chưa có mốc thời gian khẩn cấp). Cần thực hiện phỏng vấn bổ sung.";
 
         _decision = RuleResult(
           isEligible: false,
@@ -187,7 +215,7 @@ class ResultViewModel extends ChangeNotifier {
       }
 
       _lastScoringData = {
-        "status": _isCaseClosed ? "TẠM DỪNG - ĐÓNG CA" : (statusText.isNotEmpty ? statusText : "HỢP LỆ"),
+        "status": _isCaseClosed ? "TẠM DỪNG - ĐÓNG CA" : (_isInsufficient ? "CHƯA ĐỦ THÔNG TIN" : (statusText.isNotEmpty ? statusText : "HỢP LỆ")),
         "emergency": emergencyText,
         "emergency_score": ?emergencyScore,
         "income_rrtc": incomeText,
@@ -253,6 +281,7 @@ class ResultViewModel extends ChangeNotifier {
     _isResultReady = false;
     _isCalculating = false;
     _isCaseClosed = false;
+    _isInsufficient = false;
     _lastScoringData = null;
     notifyListeners();
   }

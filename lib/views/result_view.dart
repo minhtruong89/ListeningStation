@@ -255,14 +255,23 @@ class _ResultViewState extends State<ResultView> {
                                           Container(
                                             padding: EdgeInsets.symmetric(horizontal: 10.0 * scale, vertical: 6.0 * scale),
                                             decoration: BoxDecoration(
-                                              color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.12),
+                                              color: (resultVm.isCaseClosed
+                                                      ? AppStyles.errorColor
+                                                      : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor))
+                                                  .withValues(alpha: 0.12),
                                               borderRadius: BorderRadius.circular(6.0 * scale),
-                                              border: Border.all(color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.3)),
+                                              border: Border.all(
+                                                  color: (resultVm.isCaseClosed
+                                                          ? AppStyles.errorColor
+                                                          : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor))
+                                                      .withValues(alpha: 0.3)),
                                             ),
                                             child: Text(
                                               "Hệ số giải ngân: ${(resultVm.disbursementMultiplier * 100).toStringAsFixed(0)}%",
                                               style: TextStyle(
-                                                color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                                color: resultVm.isCaseClosed
+                                                    ? AppStyles.errorColor
+                                                    : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor),
                                                 fontSize: 12.0 * scale,
                                                 fontWeight: FontWeight.bold,
                                                 fontFamily: 'monospace',
@@ -287,6 +296,24 @@ class _ResultViewState extends State<ResultView> {
                                                 ),
                                               ),
                                             ),
+                                          if (resultVm.isInsufficient)
+                                            Container(
+                                              padding: EdgeInsets.symmetric(horizontal: 10.0 * scale, vertical: 6.0 * scale),
+                                              decoration: BoxDecoration(
+                                                color: AppStyles.warningColor.withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(6.0 * scale),
+                                                border: Border.all(color: AppStyles.warningColor),
+                                              ),
+                                              child: Text(
+                                                "CHƯA ĐỦ THÔNG TIN",
+                                                style: TextStyle(
+                                                  color: AppStyles.warningColor,
+                                                  fontSize: 12.0 * scale,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'monospace',
+                                                ),
+                                              ),
+                                            ),
                                         ],
                                       ),
                                     ),
@@ -300,17 +327,25 @@ class _ResultViewState extends State<ResultView> {
                                           children: [
                                             SizedBox(height: 40.0 * scale), // Spacer for top-left distress badge
                                             Icon(
-                                              resultVm.isCaseClosed ? Icons.cancel_outlined : Icons.verified,
-                                              color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                              resultVm.isCaseClosed
+                                                  ? Icons.cancel_outlined
+                                                  : (resultVm.isInsufficient ? Icons.info_outline : Icons.verified),
+                                              color: resultVm.isCaseClosed
+                                                  ? AppStyles.errorColor
+                                                  : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor),
                                               size: 56.0 * scale,
                                             ),
                                             SizedBox(height: 6.0 * scale),
                                             Text(
-                                              resultVm.isCaseClosed ? "CA HỖ TRỢ BỊ TẠM DỪNG - ĐÓNG CA" : "SỐ TIỀN PHÊ DUYỆT CHỈ ĐỊNH",
+                                              resultVm.isCaseClosed
+                                                  ? "CA HỖ TRỢ BỊ TẠM DỪNG - ĐÓNG CA"
+                                                  : (resultVm.isInsufficient ? "HỒ SƠ CHƯA ĐỦ THÔNG TIN XÉT DUYỆT" : "SỐ TIỀN PHÊ DUYỆT CHỈ ĐỊNH"),
                                               style: AppStyles.bodyLarge.copyWith(
                                                 fontSize: 16.0 * scale,
-                                                color: resultVm.isCaseClosed ? AppStyles.errorColor : null,
-                                                fontWeight: resultVm.isCaseClosed ? FontWeight.bold : null,
+                                                color: resultVm.isCaseClosed
+                                                    ? AppStyles.errorColor
+                                                    : (resultVm.isInsufficient ? AppStyles.warningColor : null),
+                                                fontWeight: (resultVm.isCaseClosed || resultVm.isInsufficient) ? FontWeight.bold : null,
                                               ),
                                             ),
                                             SizedBox(height: 16.0 * scale),
@@ -319,15 +354,23 @@ class _ResultViewState extends State<ResultView> {
                                             Container(
                                               padding: EdgeInsets.symmetric(horizontal: 24.0 * scale, vertical: 16.0 * scale),
                                               decoration: BoxDecoration(
-                                                color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.12),
+                                                color: (resultVm.isCaseClosed
+                                                        ? AppStyles.errorColor
+                                                        : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor))
+                                                    .withValues(alpha: 0.12),
                                                 borderRadius: BorderRadius.circular(16.0 * scale),
                                                 border: Border.all(
-                                                  color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                                  color: resultVm.isCaseClosed
+                                                      ? AppStyles.errorColor
+                                                      : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor),
                                                   width: 1.5 * scale,
                                                 ),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: (resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor).withValues(alpha: 0.2),
+                                                    color: (resultVm.isCaseClosed
+                                                            ? AppStyles.errorColor
+                                                            : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor))
+                                                        .withValues(alpha: 0.2),
                                                     blurRadius: 16.0 * scale,
                                                     spreadRadius: 2.0 * scale,
                                                   )
@@ -336,7 +379,9 @@ class _ResultViewState extends State<ResultView> {
                                               child: Text(
                                                 "${_formatCurrency(resultVm.decision?.approvedAmount ?? 0.0)} VNĐ",
                                                 style: AppStyles.titleHuge.copyWith(
-                                                  color: resultVm.isCaseClosed ? AppStyles.errorColor : AppStyles.successColor,
+                                                  color: resultVm.isCaseClosed
+                                                      ? AppStyles.errorColor
+                                                      : (resultVm.isInsufficient ? AppStyles.warningColor : AppStyles.successColor),
                                                   fontSize: 36.0 * scale,
                                                 ),
                                               ),

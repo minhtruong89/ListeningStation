@@ -77,6 +77,8 @@ class ConversationViewModel extends ChangeNotifier {
   DateTime? _storytellingLastTextUpdate;
   String _storytellingInvitationFullText = "";
   Timer? _storytellingStartTimer;
+  bool _isLastMessageStreaming = false;
+  String? _lastStreamingSpeaker;
 
   bool get isStorytellingActive => _isStorytellingActive;
   int get storytellingRemainingSeconds => _storytellingRemainingSeconds;
@@ -130,6 +132,21 @@ class ConversationViewModel extends ChangeNotifier {
     return false;
   }
 
+  bool _isStorytellingAssistantClosingPhrase(String text) {
+    final lower = text.toLowerCase().trim();
+    return lower.contains("cô bác đã kể xong") ||
+        lower.contains("bác đã kể xong") ||
+        lower.contains("chú đã kể xong") ||
+        lower.contains("anh đã kể xong") ||
+        lower.contains("chị đã kể xong") ||
+        lower.contains("đã kể xong") ||
+        lower.contains("con đã ghi nhận thông tin") ||
+        lower.contains("con xin ghi nhận thông tin") ||
+        lower.contains("ghi nhận thông tin cô bác") ||
+        lower.contains("ghi nhận những chia sẻ") ||
+        lower.contains("ghi nhận hoàn cảnh");
+  }
+
   bool _isStorytellingFinishedKeyword(String text) {
     final lower = text.toLowerCase().trim();
     return lower.contains("tôi đã kể xong") ||
@@ -156,16 +173,13 @@ class ConversationViewModel extends ChangeNotifier {
   void _scheduleStorytellingStart(String fullText) {
     _storytellingStartTimer?.cancel();
 
-    final wordCount = fullText.trim().split(RegExp(r'\s+')).length;
-    // Tốc độ đọc tự nhiên tiếng Việt: ~ 2.8 - 3 từ/giây (khoảng 340ms/từ) + 1.8s đệm an toàn sau khi đọc xong
-    // Với câu mời ~47 từ, tổng thời gian đọc khoảng 16 - 17 giây
-    final estimatedReadingMs = (wordCount * 340) + 1800;
+    // Rút ngắn timeout an toàn xuống tối đa 4.5s sau khi transcript câu mời xuất hiện
     final elapsedMs = _storytellingDetectedTime != null
         ? DateTime.now().difference(_storytellingDetectedTime!).inMilliseconds
         : 0;
-    final remainingMs = math.max(2500, estimatedReadingMs - elapsedMs);
+    final remainingMs = math.max(1500, 4500 - elapsedMs);
 
-    LogService.log("[ConversationVM] Storytelling phase scheduled in ${remainingMs}ms (words: $wordCount, elapsed: ${elapsedMs}ms, estTotal: ${estimatedReadingMs}ms)");
+    LogService.log("[ConversationVM] Storytelling phase scheduled in ${remainingMs}ms (elapsed: ${elapsedMs}ms)");
 
     _storytellingStartTimer = Timer(Duration(milliseconds: remainingMs), () {
       if (!_isPendingStorytellingStart || _isStorytellingActive) return;
@@ -174,8 +188,8 @@ class ConversationViewModel extends ChangeNotifier {
           ? DateTime.now().difference(_storytellingLastTextUpdate!).inMilliseconds
           : 9999;
 
-      if (sinceLastUpdate >= 1000) {
-        LogService.log("[ConversationVM] Full storytelling invitation speech duration elapsed with stable transcript -> Triggering startStorytellingPhase");
+      if (sinceLastUpdate >= 600) {
+        LogService.log("[ConversationVM] Storytelling invitation speech stabilized -> Triggering startStorytellingPhase");
         _triggerStorytellingStart();
       } else {
         LogService.log("[ConversationVM] Transcript still updating (${sinceLastUpdate}ms ago) -> Extending storytelling wait");
@@ -242,12 +256,22 @@ class ConversationViewModel extends ChangeNotifier {
     notifyListeners();
 
     if (wasActive && notifyServer) {
-      // Tự động append câu "Tôi đã kể xong." và gửi sang Vapi để bắt đầu Giai đoạn 3
-      _messages.add(ConversationMessage(
-        sender: "Người cần giúp đỡ",
-        content: "Tôi đã kể xong.",
-        timestamp: DateTime.now(),
-      ));
+      // Chỉ append câu "Tôi đã kể xong." nếu câu cuối cùng của người dùng chưa có từ kết thúc
+      final lastUserMsg = _messages.reversed.firstWhere(
+        (m) => m.sender == "Người cần giúp đỡ",
+        orElse: () => ConversationMessage(sender: "", content: "", timestamp: DateTime.now()),
+      );
+      final hasFinishedInLastMsg = lastUserMsg.content.toLowerCase().contains("kể xong") ||
+          lastUserMsg.content.toLowerCase().contains("xong rồi") ||
+          lastUserMsg.content.toLowerCase().contains("đã xong");
+
+      if (!hasFinishedInLastMsg) {
+        _messages.add(ConversationMessage(
+          sender: "Người cần giúp đỡ",
+          content: "Tôi đã kể xong.",
+          timestamp: DateTime.now(),
+        ));
+      }
       _writeSessionLogNow();
       notifyListeners();
 
@@ -403,16 +427,27 @@ class ConversationViewModel extends ChangeNotifier {
 
       // 1. Nếu là danh sách hội thoại hoàn chỉnh từ ConversationUpdate (chuẩn 100% như Vapi Dashboard)
       if (isConvUpdate) {
-        _messages.clear();
-        for (var vm in vapiMessages) {
-          final t = vm.text.trim();
-          if (t.isNotEmpty) {
-            _messages.add(ConversationMessage(
-              sender: vm.speaker,
-              content: t,
-              timestamp: DateTime.now(),
-            ));
+        final liveUserMsgCount = _messages.where((m) => m.sender == 'Người cần giúp đỡ').length;
+        final vapiUserMsgCount = vapiMessages.where((m) => m.speaker == 'Người cần giúp đỡ').length;
+
+        // Nếu danh sách live đang lưu nhiều câu chi tiết của người dùng hơn vapiMessages (ví dụ bà con kể nhiều hàng riêng biệt),
+        // giữ nguyên các câu live của người dùng để không bị mất dữ liệu
+        if (liveUserMsgCount > vapiUserMsgCount && _messages.length >= vapiMessages.length) {
+          LogService.log("[ConversationVM] Retaining live messages with $liveUserMsgCount user utterances (vapi had $vapiUserMsgCount)");
+        } else {
+          _messages.clear();
+          for (var vm in vapiMessages) {
+            final t = vm.text.trim();
+            if (t.isNotEmpty) {
+              _messages.add(ConversationMessage(
+                sender: vm.speaker,
+                content: t,
+                timestamp: DateTime.now(),
+              ));
+            }
           }
+          _isLastMessageStreaming = false;
+          _lastStreamingSpeaker = null;
         }
 
         // Tự động đóng banner Kể tự do nếu user đã nói từ khóa hoàn tất hoặc AI đã phản hồi câu nội dung
@@ -433,7 +468,7 @@ class ConversationViewModel extends ChangeNotifier {
                   cleanLow == 'vâng' ||
                   cleanLow == 'vâng ạ' ||
                   cleanLow == 'dạ vâng';
-              if (!isFiller && (cleanLow.split(RegExp(r'\s+')).length >= 5 || cleanLow.contains('ghi nhận'))) {
+              if (!isFiller && (_isStorytellingAssistantClosingPhrase(cleanLow) || cleanLow.split(RegExp(r'\s+')).length >= 5 || cleanLow.contains('ghi nhận'))) {
                 LogService.log("[ConversationVM] AI response detected in ConversationUpdate -> Auto closing storytelling banner and unmuting speaker");
                 stopStorytellingPhase(notifyServer: false);
                 break;
@@ -489,16 +524,22 @@ class ConversationViewModel extends ChangeNotifier {
             // Bỏ qua câu đệm ngắn vô nghĩa của AI
             continue;
           } else {
-            // Nếu AI bắt đầu nói một câu đầy đủ (ví dụ: "Dạ con xin ghi nhận...", hỏi thăm tiếp theo...),
-            // chứng tỏ AI đã chuyển sang Giai đoạn 3 -> Tự động kết thúc kể tự do và mở lại loa ngay lập tức!
-            final wordCount = cleanLow.split(RegExp(r'\s+')).length;
-            if (wordCount >= 4 ||
-                cleanLow.contains('ghi nhận') ||
-                cleanLow.contains('cảm ơn') ||
-                cleanLow.contains('hoàn cảnh') ||
-                cleanLow.contains('khó khăn')) {
-              LogService.log("[ConversationVM] Assistant started speaking substantial response during storytelling ('$newText') -> Auto ending storytelling and unmuting speaker");
+            // Kiểm tra câu kết thúc kể tự do của Trạm Lắng Nghe ("Dạ cô bác đã kể xong, con đã ghi nhận...")
+            if (_isStorytellingAssistantClosingPhrase(newText)) {
+              LogService.log("[ConversationVM] Assistant confirmed storytelling finished ('$newText') -> Auto ending storytelling and unmuting speaker immediately");
               stopStorytellingPhase(notifyServer: false);
+            } else {
+              // Nếu AI bắt đầu nói một câu đầy đủ (ví dụ: "Dạ con xin ghi nhận...", hỏi thăm tiếp theo...),
+              // chứng tỏ AI đã chuyển sang Giai đoạn 3 -> Tự động kết thúc kể tự do và mở lại loa ngay lập tức!
+              final wordCount = cleanLow.split(RegExp(r'\s+')).length;
+              if (wordCount >= 4 ||
+                  cleanLow.contains('ghi nhận') ||
+                  cleanLow.contains('cảm ơn') ||
+                  cleanLow.contains('hoàn cảnh') ||
+                  cleanLow.contains('khó khăn')) {
+                LogService.log("[ConversationVM] Assistant started speaking substantial response during storytelling ('$newText') -> Auto ending storytelling and unmuting speaker");
+                stopStorytellingPhase(notifyServer: false);
+              }
             }
           }
         }
@@ -513,21 +554,58 @@ class ConversationViewModel extends ChangeNotifier {
           }
         }
 
-        // Hiển thị trực tiếp vào danh sách tin nhắn:
-        // Nếu tin nhắn cuối cùng cùng người nói -> cập nhật nội dung (streaming trôi mượt mà)
-        if (_messages.isNotEmpty && _messages.last.sender == speaker) {
-          _messages[_messages.length - 1] = ConversationMessage(
-            sender: speaker,
-            content: newText,
-            timestamp: _messages.last.timestamp,
-          );
+        final isPartial = vm.isPartial;
+
+        // Hiển thị trực tiếp vào danh sách tin nhắn từng hàng riêng biệt:
+        // Nếu là partial transcript từ cùng 1 người đang nói -> Cập nhật nội dung hàng hiện tại (hiển thị streaming mượt)
+        // Nếu là final transcript -> Chốt hàng hiện tại, các câu nói tiếp theo sẽ được tạo thành hàng mới riêng biệt
+        if (isPartial) {
+          if (_messages.isNotEmpty &&
+              _isLastMessageStreaming &&
+              _lastStreamingSpeaker == speaker) {
+            _messages[_messages.length - 1] = ConversationMessage(
+              sender: speaker,
+              content: newText,
+              timestamp: _messages.last.timestamp,
+            );
+          } else {
+            _messages.add(ConversationMessage(
+              sender: speaker,
+              content: newText,
+              timestamp: DateTime.now(),
+            ));
+            _isLastMessageStreaming = true;
+            _lastStreamingSpeaker = speaker;
+          }
         } else {
-          // Khác người nói -> thêm bong bóng tin nhắn mới
-          _messages.add(ConversationMessage(
-            sender: speaker,
-            content: newText,
-            timestamp: DateTime.now(),
-          ));
+          // Final transcript cho một câu hoàn chỉnh
+          if (_messages.isNotEmpty &&
+              _isLastMessageStreaming &&
+              _lastStreamingSpeaker == speaker) {
+            _messages[_messages.length - 1] = ConversationMessage(
+              sender: speaker,
+              content: newText,
+              timestamp: _messages.last.timestamp,
+            );
+          } else if (_messages.isNotEmpty &&
+              _messages.last.sender == speaker &&
+              (newText.startsWith(_messages.last.content) || _messages.last.content.startsWith(newText))) {
+            _messages[_messages.length - 1] = ConversationMessage(
+              sender: speaker,
+              content: newText,
+              timestamp: _messages.last.timestamp,
+            );
+          } else {
+            // Câu nói mới riêng biệt -> Thêm hàng mới!
+            _messages.add(ConversationMessage(
+              sender: speaker,
+              content: newText,
+              timestamp: DateTime.now(),
+            ));
+          }
+          // Chốt câu nói này đã hoàn tất
+          _isLastMessageStreaming = false;
+          _lastStreamingSpeaker = null;
         }
 
         // Kiểm tra xem AI đã nói câu mời kể tự do đầy đủ chưa
@@ -616,16 +694,14 @@ class ConversationViewModel extends ChangeNotifier {
 
       // Xử lý khi AI hoàn tất nói toàn bộ câu mời kể tự do
       if (_isPendingStorytellingStart && !_isStorytellingActive) {
-        if (status.contains('stopped')) {
-          final elapsedMs = _storytellingDetectedTime != null
-              ? DateTime.now().difference(_storytellingDetectedTime!).inMilliseconds
-              : 0;
-          final wordCount = _storytellingInvitationFullText.trim().split(RegExp(r'\s+')).length;
-          // Đảm bảo trợ lý đã nói đủ thời gian tối thiểu theo số từ (ít nhất 220ms/từ hoặc 4.5s)
-          if (elapsedMs >= math.max(4500, wordCount * 220)) {
-            LogService.log("[ConversationVM] Speech stopped received after full storytelling invitation spoken -> Triggering storytelling phase");
-            _triggerStorytellingStart();
-          }
+        if (status.contains('stopped') && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
+          LogService.log("[ConversationVM] Speech stopped received after storytelling invitation -> Triggering storytelling phase without artificial delay");
+          // Bỏ hoàn toàn chặn cứng 220ms/từ hoặc 4.5s; chỉ đệm 400ms ngắn tự nhiên
+          Future.delayed(const Duration(milliseconds: 400), () {
+            if (_isPendingStorytellingStart && !_isStorytellingActive) {
+              _triggerStorytellingStart();
+            }
+          });
         }
       }
 

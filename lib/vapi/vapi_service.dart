@@ -98,9 +98,22 @@ class VapiService {
               textLower.contains('con cảm ơn') ||
               textLower.contains('cho con hỏi') ||
               textLower.contains('giùm con') ||
+              textLower.contains('dùm con') ||
               textLower.contains('ghi nhận thông tin') ||
               textLower.contains('quỹ bông sen') ||
               textLower.contains('trạm lắng nghe') ||
+              textLower.contains('cô bác đã kể xong') ||
+              textLower.contains('đã kể xong') ||
+              textLower.contains('đúng không ạ') ||
+              textLower.contains('bao nhiêu ạ') ||
+              textLower.contains('được bao lâu') ||
+              textLower.contains('không ạ?') ||
+              textLower.contains('không chú') ||
+              textLower.contains('không cô') ||
+              textLower.contains('không bác') ||
+              textLower.contains('vậy chú') ||
+              textLower.contains('vậy cô') ||
+              textLower.contains('vậy bác') ||
               textLower.startsWith('dạ, con') ||
               textLower.startsWith('dạ con');
 

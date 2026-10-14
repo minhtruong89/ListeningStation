@@ -130,6 +130,29 @@ class ConversationViewModel extends ChangeNotifier {
     return false;
   }
 
+  bool _isStorytellingFinishedKeyword(String text) {
+    final lower = text.toLowerCase().trim();
+    return lower.contains("tôi đã kể xong") ||
+        lower.contains("đã xong") ||
+        lower.contains("đã kể xong") ||
+        lower.contains("tôi kể xong rồi") ||
+        lower.contains("kể xong rồi") ||
+        lower.contains("con đã kể xong") ||
+        lower.contains("kể hết rồi") ||
+        lower.contains("hết rồi") ||
+        lower.contains("kể xong") ||
+        lower.contains("xong rồi") ||
+        lower.contains("xong rồi ạ") ||
+        lower.contains("tôi nói xong rồi") ||
+        lower.contains("nói xong rồi") ||
+        lower.contains("hết rồi ạ") ||
+        lower.contains("dạ xong rồi") ||
+        lower.contains("dạ hết rồi") ||
+        lower.contains("xong ạ") ||
+        lower.contains("tôi xong rồi") ||
+        lower.contains("kể vậy thôi");
+  }
+
   void _scheduleStorytellingStart(String fullText) {
     _storytellingStartTimer?.cancel();
 
@@ -207,30 +230,29 @@ class ConversationViewModel extends ChangeNotifier {
     _storytellingStartTimer = null;
     _isPendingStorytellingStart = false;
 
-    if (_isStorytellingActive) {
-      _isStorytellingActive = false;
+    final wasActive = _isStorytellingActive;
+    _isStorytellingActive = false;
 
-      // Mở lại tiếng loa trợ lý ngay sau khi kết thúc giai đoạn kể tự do
-      if (flagVAPI) {
-        LogService.log("[ConversationVM] Unmuting assistant speaker after free storytelling phase");
-        _vapiService.setSpeakerMuted(false);
-      }
+    // Luôn luôn đảm bảo mở lại tiếng loa trợ lý ngay khi thoát khỏi giai đoạn kể tự do
+    if (flagVAPI) {
+      LogService.log("[ConversationVM] Ensuring assistant speaker unmuted after storytelling (wasActive: $wasActive)");
+      _vapiService.setSpeakerMuted(false);
+    }
 
+    notifyListeners();
+
+    if (wasActive && notifyServer) {
+      // Tự động append câu "Tôi đã kể xong." và gửi sang Vapi để bắt đầu Giai đoạn 3
+      _messages.add(ConversationMessage(
+        sender: "Người cần giúp đỡ",
+        content: "Tôi đã kể xong.",
+        timestamp: DateTime.now(),
+      ));
+      _writeSessionLogNow();
       notifyListeners();
 
-      if (notifyServer) {
-        // Tự động append câu "Tôi đã kể xong." và gửi sang Vapi để bắt đầu Giai đoạn 3
-        _messages.add(ConversationMessage(
-          sender: "Người cần giúp đỡ",
-          content: "Tôi đã kể xong.",
-          timestamp: DateTime.now(),
-        ));
-        _writeSessionLogNow();
-        notifyListeners();
-
-        if (flagVAPI) {
-          _vapiService.sendMessage("Tôi đã kể xong.");
-        }
+      if (flagVAPI) {
+        _vapiService.sendMessage("Tôi đã kể xong.");
       }
     }
   }
@@ -393,23 +415,26 @@ class ConversationViewModel extends ChangeNotifier {
           }
         }
 
-        // Tự động đóng banner Kể tự do nếu user đã nói từ khóa hoàn tất
+        // Tự động đóng banner Kể tự do nếu user đã nói từ khóa hoàn tất hoặc AI đã phản hồi câu nội dung
         if (_isStorytellingActive &&
             _storytellingStartTime != null &&
             DateTime.now().difference(_storytellingStartTime!).inSeconds >= 2) {
           for (var vm in vapiMessages) {
             if (vm.speaker != 'Trạm Lắng Nghe') {
-              final lower = vm.text.toLowerCase();
-              if (lower.contains("tôi đã kể xong") ||
-                  lower.contains("đã xong") ||
-                  lower.contains("đã kể xong") ||
-                  lower.contains("tôi kể xong rồi") ||
-                  lower.contains("kể xong rồi") ||
-                  lower.contains("con đã kể xong") ||
-                  lower.contains("kể hết rồi") ||
-                  lower.contains("hết rồi") ||
-                  lower.contains("kể xong")) {
+              if (_isStorytellingFinishedKeyword(vm.text)) {
                 LogService.log("[ConversationVM] Detected completion keyword in ConversationUpdate from user -> Auto closing storytelling banner");
+                stopStorytellingPhase(notifyServer: false);
+                break;
+              }
+            } else {
+              final cleanLow = vm.text.toLowerCase().trim();
+              final isFiller = cleanLow == 'dạ.' ||
+                  cleanLow == 'dạ' ||
+                  cleanLow == 'vâng' ||
+                  cleanLow == 'vâng ạ' ||
+                  cleanLow == 'dạ vâng';
+              if (!isFiller && (cleanLow.split(RegExp(r'\s+')).length >= 5 || cleanLow.contains('ghi nhận'))) {
+                LogService.log("[ConversationVM] AI response detected in ConversationUpdate -> Auto closing storytelling banner and unmuting speaker");
                 stopStorytellingPhase(notifyServer: false);
                 break;
               }
@@ -451,28 +476,36 @@ class ConversationViewModel extends ChangeNotifier {
           SpeechService.sendAnimationFace("SILIENCE");
         }
 
-        // Trong giai đoạn kể tự do (Storytelling), bỏ qua câu đệm ngắn vô nghĩa nếu AI phát "Dạ"
+        // Trong giai đoạn kể tự do (Storytelling):
         if (_isStorytellingActive && speaker == 'Trạm Lắng Nghe') {
           final cleanLow = newText.toLowerCase().trim();
-          if (cleanLow == 'dạ.' || cleanLow == 'dạ' || cleanLow == 'vâng' || cleanLow == 'vâng ạ') {
+          final isFiller = cleanLow == 'dạ.' ||
+              cleanLow == 'dạ' ||
+              cleanLow == 'vâng' ||
+              cleanLow == 'vâng ạ' ||
+              cleanLow == 'dạ vâng';
+
+          if (isFiller) {
+            // Bỏ qua câu đệm ngắn vô nghĩa của AI
             continue;
+          } else {
+            // Nếu AI bắt đầu nói một câu đầy đủ (ví dụ: "Dạ con xin ghi nhận...", hỏi thăm tiếp theo...),
+            // chứng tỏ AI đã chuyển sang Giai đoạn 3 -> Tự động kết thúc kể tự do và mở lại loa ngay lập tức!
+            final wordCount = cleanLow.split(RegExp(r'\s+')).length;
+            if (wordCount >= 4 ||
+                cleanLow.contains('ghi nhận') ||
+                cleanLow.contains('cảm ơn') ||
+                cleanLow.contains('hoàn cảnh') ||
+                cleanLow.contains('khó khăn')) {
+              LogService.log("[ConversationVM] Assistant started speaking substantial response during storytelling ('$newText') -> Auto ending storytelling and unmuting speaker");
+              stopStorytellingPhase(notifyServer: false);
+            }
           }
         }
 
         // Kiểm tra từ khóa hoàn tất lời kể trong giai đoạn kể tự do
         if (_isStorytellingActive && speaker == 'Người cần giúp đỡ') {
-          final lower = newText.toLowerCase();
-          final bool isFinishedKeyword = lower.contains("tôi đã kể xong") ||
-              lower.contains("đã xong") ||
-              lower.contains("đã kể xong") ||
-              lower.contains("tôi kể xong rồi") ||
-              lower.contains("kể xong rồi") ||
-              lower.contains("con đã kể xong") ||
-              lower.contains("kể hết rồi") ||
-              lower.contains("hết rồi") ||
-              lower.contains("kể xong");
-
-          if (isFinishedKeyword &&
+          if (_isStorytellingFinishedKeyword(newText) &&
               _storytellingStartTime != null &&
               DateTime.now().difference(_storytellingStartTime!).inSeconds >= 2) {
             LogService.log("[ConversationVM] Detected finish keyword '$newText' during live streaming -> Stopping storytelling phase");
@@ -567,6 +600,7 @@ class ConversationViewModel extends ChangeNotifier {
       } else if (state == VapiCallState.active) {
         _isProcessing = false;
         _vapiService.syncVolume();
+        _vapiService.setSpeakerMuted(false);
       } else if (state == VapiCallState.ended || state == VapiCallState.error) {
         _isProcessing = false;
         SpeechService.sendAnimationFace("SILIENCE");

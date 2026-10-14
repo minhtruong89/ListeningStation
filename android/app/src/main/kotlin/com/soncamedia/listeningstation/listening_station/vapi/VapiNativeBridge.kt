@@ -64,6 +64,8 @@ class VapiNativeBridge(
 
     @Volatile
     private var isMuted = false
+    @Volatile
+    private var isSpeakerMutedForStorytelling = false
     private var savedVoiceVolume: Int = -1
 
     fun applyWebRtcMute(mute: Boolean) {
@@ -78,13 +80,7 @@ class VapiNativeBridge(
             Log.d("VapiNativeBridge", "Invoked static org.webrtc.voiceengine.WebRtcAudioTrack.setSpeakerMute($mute)")
         } catch (e: Throwable) {}
 
-        if (!mute) {
-            // Khi BẬT TIẾNG: chỉ cần static unmute là đủ, TUYỆT ĐỐI không quét reflection hay quét Threads
-            // để tránh tạm dừng luồng âm thanh WebRTC gây khựng/giật tiếng (audio stutter).
-            return
-        }
-
-        // 2. Chỉ khi mute=true (TẮT TIẾNG HOÀN TOÀN), quét client để hạ volume AudioTrack
+        // 2. Quét client để đặt volume AudioTrack (0.0f khi mute=true, 1.0f khi mute=false)
         try {
             val client = vapiClient
             if (client != null) {
@@ -170,6 +166,10 @@ class VapiNativeBridge(
     }
 
     fun syncVoiceCallVolumeToMusic() {
+        if (isSpeakerMutedForStorytelling) {
+            Log.d("VapiNativeBridge", "syncVoiceCallVolumeToMusic: currently speaker is muted for storytelling, skipping")
+            return
+        }
         try {
             val musicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
             val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -522,6 +522,18 @@ class VapiNativeBridge(
                             return@launch
                         }
 
+                        val currentMusic = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        if (currentMusic <= 0) {
+                            val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                            val defaultMusic = if (maxMusic > 0) Math.max(1, (maxMusic * 0.7).toInt()) else 10
+                            Log.d("VapiNativeBridge", "startCall: STREAM_MUSIC was $currentMusic, restoring default volume $defaultMusic/$maxMusic")
+                            try {
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, defaultMusic, 0)
+                            } catch (e: Exception) {}
+                        }
+                        isSpeakerMutedForStorytelling = false
+                        savedVoiceVolume = -1
+
                         Log.d("VapiNativeBridge", "Starting Vapi call with assistantId: $assistantId (100% Vapi Dashboard setup)")
                         syncVoiceCallVolumeToMusic()
 
@@ -543,6 +555,9 @@ class VapiNativeBridge(
             }
             "stopCall" -> {
                 Log.d("VapiNativeBridge", "stopCall requested -> Stopping Vapi WebRTC client")
+                isSpeakerMutedForStorytelling = false
+                savedVoiceVolume = -1
+                applyWebRtcMute(false)
                 try {
                     vapiClient?.stop()
                 } catch (e: Exception) {
@@ -571,6 +586,7 @@ class VapiNativeBridge(
             "setSpeakerMuted" -> {
                 val muted = call.argument<Boolean>("muted") ?: false
                 Log.d("VapiNativeBridge", "setSpeakerMuted requested from Flutter: $muted (speaker only, microphone stays active)")
+                isSpeakerMutedForStorytelling = muted
                 if (muted) {
                     if (savedVoiceVolume == -1) {
                         try {
@@ -581,15 +597,9 @@ class VapiNativeBridge(
                         try {
                             audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_MUTE, 0)
                         } catch (e: Exception) {}
-                        try {
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
-                        } catch (e: Exception) {}
                     }
                     try {
                         audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, 0, 0)
-                    } catch (e: Exception) {}
-                    try {
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
                     } catch (e: Exception) {}
                     applyWebRtcMute(true)
                     ensureMicrophoneEnabled()
@@ -598,17 +608,14 @@ class VapiNativeBridge(
                         try {
                             audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_UNMUTE, 0)
                         } catch (e: Exception) {}
-                        try {
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-                        } catch (e: Exception) {}
                     }
+                    applyWebRtcMute(false)
                     val vol = if (savedVoiceVolume > 0) savedVoiceVolume else 3
                     savedVoiceVolume = -1
                     try {
                         audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, vol, 0)
                     } catch (e: Exception) {}
                     syncVoiceCallVolumeToMusic()
-                    applyWebRtcMute(false)
                     ensureMicrophoneEnabled()
                 }
                 result.success(true)

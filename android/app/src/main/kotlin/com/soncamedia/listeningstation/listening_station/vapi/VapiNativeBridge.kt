@@ -585,19 +585,14 @@ class VapiNativeBridge(
                 Log.d("VapiNativeBridge", "setSpeakerMuted requested from Flutter: $muted (speaker only, microphone stays active)")
                 isSpeakerMutedForStorytelling = muted
                 if (muted) {
-                    if (savedVoiceVolume == -1) {
-                        try {
-                            savedVoiceVolume = audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
-                        } catch (e: Exception) {}
-                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         try {
                             audioManager.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_MUTE, 0)
                         } catch (e: Exception) {}
+                        try {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+                        } catch (e: Exception) {}
                     }
-                    try {
-                        audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, 0, 0)
-                    } catch (e: Exception) {}
                     applyWebRtcMute(true)
                     ensureMicrophoneEnabled()
                 } else {
@@ -615,21 +610,6 @@ class VapiNativeBridge(
                     try {
                         audioManager.isSpeakerphoneOn = true
                     } catch (e: Exception) {}
-
-                    val maxVoice = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-                    val vol = if (savedVoiceVolume > 0) savedVoiceVolume else Math.max(1, (maxVoice * 0.8).toInt())
-                    savedVoiceVolume = -1
-                    try {
-                        audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, vol, 0)
-                    } catch (e: Exception) {}
-
-                    val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                    val curMusic = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                    if (curMusic <= 0 && maxMusic > 0) {
-                        try {
-                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, Math.max(1, (maxMusic * 0.7).toInt()), 0)
-                        } catch (e: Exception) {}
-                    }
 
                     ensureMicrophoneEnabled()
                 }

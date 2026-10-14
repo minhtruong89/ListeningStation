@@ -132,13 +132,38 @@ class ConversationViewModel extends ChangeNotifier {
     return false;
   }
 
+  bool _isStorytellingFillerPhrase(String text) {
+    final lower = text.toLowerCase().trim();
+    return lower == 'dạ.' ||
+        lower == 'dạ' ||
+        lower == 'vâng' ||
+        lower == 'vâng ạ' ||
+        lower == 'dạ vâng' ||
+        lower.contains('vẫn đang lắng nghe') ||
+        lower.contains('đang lắng nghe') ||
+        lower.contains('vẫn đang nghe') ||
+        lower.contains('đang nghe') ||
+        lower.contains('thong thả') ||
+        lower.contains('kể tiếp') ||
+        lower.contains('nói tiếp') ||
+        lower.contains('cứ nói') ||
+        lower.contains('cứ kể') ||
+        lower.contains('chú cứ kể') ||
+        lower.contains('cô cứ kể') ||
+        lower.contains('bác cứ kể') ||
+        lower.contains('con nghe đây') ||
+        lower.contains('lắng nghe đây');
+  }
+
   bool _isStorytellingAssistantClosingPhrase(String text) {
     final lower = text.toLowerCase().trim();
+    if (_isStorytellingFillerPhrase(lower)) return false;
     return lower.contains("cô bác đã kể xong") ||
         lower.contains("bác đã kể xong") ||
         lower.contains("chú đã kể xong") ||
         lower.contains("anh đã kể xong") ||
         lower.contains("chị đã kể xong") ||
+        lower.contains("đã kể xong") ||
         lower.contains("con đã ghi nhận thông tin") ||
         lower.contains("con xin ghi nhận thông tin") ||
         lower.contains("ghi nhận thông tin cô bác") ||
@@ -166,7 +191,65 @@ class ConversationViewModel extends ChangeNotifier {
         lower.contains("dạ hết rồi") ||
         lower.contains("xong ạ") ||
         lower.contains("tôi xong rồi") ||
-        lower.contains("kể vậy thôi");
+        lower.contains("kể vậy thôi") ||
+        lower.contains("đơn giản sau") ||
+        lower.contains("đơn giản xong") ||
+        lower.contains("kể song") ||
+        lower.contains("nói song") ||
+        lower.contains("song rồi") ||
+        lower.contains("xong òi") ||
+        lower.contains("hết rùi");
+  }
+
+  bool _isSameUtteranceExtension(String prevText, String newText) {
+    final s1 = prevText.toLowerCase().replaceAll(RegExp(r'[^\w\s]', unicode: true), ' ').trim();
+    final s2 = newText.toLowerCase().replaceAll(RegExp(r'[^\w\s]', unicode: true), ' ').trim();
+    if (s1.isEmpty || s2.isEmpty) return false;
+    if (s1 == s2) return true;
+    if (s2.startsWith(s1) || s1.startsWith(s2)) return true;
+    // Check if one contains the other when length is significant
+    if (s1.length >= 10 && (s2.contains(s1) || s1.contains(s2))) return true;
+    return false;
+  }
+
+  bool _isEchoOfRecentAssistantSpeech(String userText) {
+    if (_messages.isEmpty) return false;
+    final lastAiMsg = _messages.reversed.firstWhere(
+      (m) => m.sender == 'Trạm Lắng Nghe',
+      orElse: () => ConversationMessage(sender: '', content: '', timestamp: DateTime.fromMillisecondsSinceEpoch(0)),
+    );
+    if (lastAiMsg.sender.isEmpty) return false;
+
+    // Only filter if AI spoke within the last 12 seconds
+    if (DateTime.now().difference(lastAiMsg.timestamp).inSeconds > 12) return false;
+
+    final aiLower = lastAiMsg.content.toLowerCase().replaceAll(RegExp(r'[^\w\s]', unicode: true), ' ').trim();
+    final userLower = userText.toLowerCase().replaceAll(RegExp(r'[^\w\s]', unicode: true), ' ').trim();
+    if (userLower.isEmpty) return false;
+
+    // Direct substring if userText is reasonably long
+    if (userLower.length >= 8 && aiLower.contains(userLower)) {
+      LogService.log("[ConversationVM] Ignored echo from assistant speaker (substring): '$userText'");
+      return true;
+    }
+
+    // Word overlap check: if userText is mostly words appearing consecutively in AI's response
+    final userWords = userLower.split(RegExp(r'\s+')).where((w) => w.length >= 2).toList();
+    if (userWords.length >= 3) {
+      int matchedCount = 0;
+      for (var w in userWords) {
+        if (aiLower.contains(w)) {
+          matchedCount++;
+        }
+      }
+      final ratio = matchedCount / userWords.length;
+      if (ratio >= 0.7) {
+        LogService.log("[ConversationVM] Ignored echo from assistant speaker (overlap ${(ratio * 100).toStringAsFixed(0)}%): '$userText'");
+        return true;
+      }
+    }
+
+    return false;
   }
 
   void _scheduleStorytellingStart(String fullText) {
@@ -475,13 +558,11 @@ class ConversationViewModel extends ChangeNotifier {
               }
             } else {
               final cleanLow = vm.text.toLowerCase().trim();
-              final isFiller = cleanLow == 'dạ.' ||
-                  cleanLow == 'dạ' ||
-                  cleanLow == 'vâng' ||
-                  cleanLow == 'vâng ạ' ||
-                  cleanLow == 'dạ vâng';
-              if (!isFiller && (_isStorytellingAssistantClosingPhrase(cleanLow) || cleanLow.split(RegExp(r'\s+')).length >= 5 || cleanLow.contains('ghi nhận'))) {
-                LogService.log("[ConversationVM] AI response detected in ConversationUpdate -> Auto closing storytelling banner and unmuting speaker");
+              if (_isStorytellingFillerPhrase(cleanLow)) {
+                continue;
+              }
+              if (_isStorytellingAssistantClosingPhrase(cleanLow)) {
+                LogService.log("[ConversationVM] AI closing response detected in ConversationUpdate -> Auto closing storytelling banner and unmuting speaker");
                 stopStorytellingPhase(notifyServer: false);
                 break;
               }
@@ -526,33 +607,15 @@ class ConversationViewModel extends ChangeNotifier {
         // Trong giai đoạn kể tự do (Storytelling):
         if (_isStorytellingActive && speaker == 'Trạm Lắng Nghe') {
           final cleanLow = newText.toLowerCase().trim();
-          final isFiller = cleanLow == 'dạ.' ||
-              cleanLow == 'dạ' ||
-              cleanLow == 'vâng' ||
-              cleanLow == 'vâng ạ' ||
-              cleanLow == 'dạ vâng';
-
-          if (isFiller) {
-            // Bỏ qua câu đệm ngắn vô nghĩa của AI
+          if (_isStorytellingFillerPhrase(cleanLow)) {
+            // Bỏ qua câu đệm của AI (ví dụ: "Dạ con vẫn đang lắng nghe đây ạ..."), TUYỆT ĐỐI KHÔNG UNMUTE LOA
             continue;
-          } else {
-            // Kiểm tra câu kết thúc kể tự do của Trạm Lắng Nghe ("Dạ cô bác đã kể xong, con đã ghi nhận...")
-            if (_isStorytellingAssistantClosingPhrase(newText)) {
-              LogService.log("[ConversationVM] Assistant confirmed storytelling finished ('$newText') -> Auto ending storytelling and unmuting speaker immediately");
-              stopStorytellingPhase(notifyServer: false);
-            } else {
-              // Nếu AI bắt đầu nói một câu đầy đủ (ví dụ: "Dạ con xin ghi nhận...", hỏi thăm tiếp theo...),
-              // chứng tỏ AI đã chuyển sang Giai đoạn 3 -> Tự động kết thúc kể tự do và mở lại loa ngay lập tức!
-              final wordCount = cleanLow.split(RegExp(r'\s+')).length;
-              if (wordCount >= 4 ||
-                  cleanLow.contains('ghi nhận') ||
-                  cleanLow.contains('cảm ơn') ||
-                  cleanLow.contains('hoàn cảnh') ||
-                  cleanLow.contains('khó khăn')) {
-                LogService.log("[ConversationVM] Assistant started speaking substantial response during storytelling ('$newText') -> Auto ending storytelling and unmuting speaker");
-                stopStorytellingPhase(notifyServer: false);
-              }
-            }
+          }
+
+          // Kiểm tra câu kết thúc kể tự do chuẩn của Trạm Lắng Nghe ("Dạ cô bác đã kể xong, con đã ghi nhận...")
+          if (_isStorytellingAssistantClosingPhrase(newText)) {
+            LogService.log("[ConversationVM] Assistant confirmed storytelling finished ('$newText') -> Auto ending storytelling and unmuting speaker immediately");
+            stopStorytellingPhase(notifyServer: false);
           }
         }
 
@@ -564,6 +627,11 @@ class ConversationViewModel extends ChangeNotifier {
             LogService.log("[ConversationVM] Detected finish keyword '$newText' during live streaming -> Stopping storytelling phase");
             stopStorytellingPhase(notifyServer: false);
           }
+        }
+
+        // Lọc bỏ dội âm từ loa AI vào micro người dùng (Acoustic Echo Filter)
+        if (speaker == 'Người cần giúp đỡ' && _isEchoOfRecentAssistantSpeech(newText)) {
+          continue;
         }
 
         final isPartial = vm.isPartial;
@@ -580,6 +648,16 @@ class ConversationViewModel extends ChangeNotifier {
               content: newText,
               timestamp: _messages.last.timestamp,
             );
+          } else if (_messages.isNotEmpty &&
+              _messages.last.sender == speaker &&
+              _isSameUtteranceExtension(_messages.last.content, newText)) {
+            _messages[_messages.length - 1] = ConversationMessage(
+              sender: speaker,
+              content: newText.length >= _messages.last.content.length ? newText : _messages.last.content,
+              timestamp: _messages.last.timestamp,
+            );
+            _isLastMessageStreaming = true;
+            _lastStreamingSpeaker = speaker;
           } else {
             _messages.add(ConversationMessage(
               sender: speaker,
@@ -601,10 +679,10 @@ class ConversationViewModel extends ChangeNotifier {
             );
           } else if (_messages.isNotEmpty &&
               _messages.last.sender == speaker &&
-              (newText.startsWith(_messages.last.content) || _messages.last.content.startsWith(newText))) {
+              _isSameUtteranceExtension(_messages.last.content, newText)) {
             _messages[_messages.length - 1] = ConversationMessage(
               sender: speaker,
-              content: newText,
+              content: newText.length >= _messages.last.content.length ? newText : _messages.last.content,
               timestamp: _messages.last.timestamp,
             );
           } else {

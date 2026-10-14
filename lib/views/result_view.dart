@@ -15,9 +15,7 @@ class ResultView extends StatefulWidget {
 
 class _ResultViewState extends State<ResultView> {
   late final FocusNode _topRestartFocusNode;
-  late final FocusNode _bottomRestartFocusNode;
   bool _isTopRestartFocused = false;
-  bool _isBottomRestartFocused = false;
   bool _hasRequestedFocus = false;
 
   @override
@@ -28,14 +26,6 @@ class _ResultViewState extends State<ResultView> {
       if (mounted) {
         setState(() {
           _isTopRestartFocused = _topRestartFocusNode.hasFocus;
-        });
-      }
-    });
-    _bottomRestartFocusNode = FocusNode();
-    _bottomRestartFocusNode.addListener(() {
-      if (mounted) {
-        setState(() {
-          _isBottomRestartFocused = _bottomRestartFocusNode.hasFocus;
         });
       }
     });
@@ -55,7 +45,6 @@ class _ResultViewState extends State<ResultView> {
   @override
   void dispose() {
     _topRestartFocusNode.dispose();
-    _bottomRestartFocusNode.dispose();
     super.dispose();
   }
 
@@ -401,59 +390,7 @@ class _ResultViewState extends State<ResultView> {
                                                 textAlign: TextAlign.center,
                                               ),
                                             ),
-                                            SizedBox(height: 24.0 * scale),
-   
-                                            // Restart button at bottom
-                                            AnimatedScale(
-                                              scale: _isBottomRestartFocused ? 1.05 : 1.0,
-                                              duration: const Duration(milliseconds: 200),
-                                              curve: Curves.easeInOut,
-                                              child: AnimatedContainer(
-                                                duration: const Duration(milliseconds: 200),
-                                                curve: Curves.easeInOut,
-                                                width: double.infinity,
-                                                height: 55.0 * scale,
-                                                decoration: BoxDecoration(
-                                                  borderRadius: BorderRadius.circular(12.0 * scale),
-                                                  boxShadow: _isBottomRestartFocused
-                                                      ? [
-                                                          BoxShadow(
-                                                            color: AppStyles.successColor.withValues(alpha: 0.6),
-                                                            blurRadius: 20.0 * scale,
-                                                            spreadRadius: 4.0 * scale,
-                                                          ),
-                                                        ]
-                                                      : [],
-                                                ),
-                                                child: ElevatedButton(
-                                                  focusNode: _bottomRestartFocusNode,
-                                                  onPressed: () {
-                                                    authVm.resetVerification();
-                                                    converseVm.clearConversation();
-                                                    resultVm.reset();
-                                                    mainVm.resetApp();
-                                                  },
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: _isBottomRestartFocused 
-                                                        ? AppStyles.successColor 
-                                                        : AppStyles.successColor.withValues(alpha: 0.7),
-                                                    foregroundColor: AppStyles.backgroundEnd,
-                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0 * scale)),
-                                                    side: _isBottomRestartFocused 
-                                                        ? BorderSide(color: Colors.white, width: 3.5 * scale) 
-                                                        : null,
-                                                    elevation: _isBottomRestartFocused ? 15.0 : 0.0,
-                                                  ),
-                                                  child: Text(
-                                                    "HOÀN TẤT VÀ KHỞI ĐỘNG LẠI CA MỚI",
-                                                    style: AppStyles.bodyLarge.copyWith(
-                                                      fontSize: 16.0 * scale,
-                                                      fontWeight: FontWeight.bold,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
+
                                           ],
                                         ),
                                       ),

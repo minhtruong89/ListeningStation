@@ -1,6 +1,8 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import '../models/patient.dart';
 import '../services/llm_service.dart';
+import '../services/log_service.dart';
 import '../services/rule_engine_service.dart';
 import 'conversation_viewmodel.dart';
 
@@ -92,10 +94,25 @@ class ResultViewModel extends ChangeNotifier {
       final verificationTierText = _extractSection(scoreStr, RegExp(r'(?:Xác minh chứng cứ|Verification Tier)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
       final conclusionText = _extractSection(scoreStr, RegExp(r'(?:Kết luận|Conclusion)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
 
-      final emergencyScore = _extractScoreNumber(emergencyText, 35);
-      final incomeScore = _extractScoreNumber(incomeText, 35);
-      final familyScore = _extractScoreNumber(familyText, 30);
-      final healthScore = _extractScoreNumber(healthText, 30);
+      int? emergencyScore = _extractScoreNumber(emergencyText, 35);
+      int? incomeScore = _extractScoreNumber(incomeText, 35);
+      int? familyScore = _extractScoreNumber(familyText, 30);
+      int? healthScore = _extractScoreNumber(healthText, 30);
+
+      // Tự động kiểm tra và hiệu chỉnh nếu AI tính nhầm phép cộng Income (Phần A + Phần B)
+      final matchPartA = RegExp(r'Phần A[^\(]*\((\d+)đ?\)', caseSensitive: false).firstMatch(incomeText);
+      final matchPartB = RegExp(r'Phần B[^\(]*\((\d+)đ?\)', caseSensitive: false).firstMatch(incomeText);
+      if (matchPartA != null && matchPartB != null) {
+        final scoreA = int.tryParse(matchPartA.group(1)!);
+        final scoreB = int.tryParse(matchPartB.group(1)!);
+        if (scoreA != null && scoreB != null) {
+          final expectedIncome = math.min(35, scoreA + scoreB);
+          if (incomeScore != expectedIncome) {
+            LogService.log("[ResultVM] Detected mismatch in Income & RRTC: AI wrote $incomeScore/35 but Part A ($scoreA) + Part B ($scoreB) = $expectedIncome. Auto-correcting incomeScore to $expectedIncome.");
+            incomeScore = expectedIncome;
+          }
+        }
+      }
 
       double proposedAmount = 0.0;
       double finalAmount = 0.0;
@@ -157,22 +174,17 @@ class ResultViewModel extends ChangeNotifier {
           }
         }
 
-        // Xác định hệ số giải ngân
-        final multiplierMatch = RegExp(
-          r'(?:Hệ\s*số\s*giải\s*ngân|Disbursement\s*Multiplier)[:\s]+(\d+)%?',
-          caseSensitive: false,
-        ).firstMatch(scoreStr);
-
-        if (multiplierMatch != null) {
-          final parsed = double.tryParse(multiplierMatch.group(1)!);
-          if (parsed != null && parsed >= 0) {
-            _disbursementMultiplier = parsed > 2.0 ? parsed / 100.0 : parsed;
-          } else {
-            _disbursementMultiplier = calculateDisbursementMultiplier(_score);
+        // Tự động kiểm tra và hiệu chỉnh tính toán tổng điểm theo công thức: MIN(100, Emergency + Income&RRTC + Family + Health)
+        if (emergencyScore != null && incomeScore != null && familyScore != null && healthScore != null) {
+          final expectedTotal = math.min(100, emergencyScore + incomeScore + familyScore + healthScore);
+          if (_score != expectedTotal) {
+            LogService.log("[ResultVM] Detected arithmetic mismatch in AI total score: AI had $_score, expected $expectedTotal (E:$emergencyScore + I:$incomeScore + F:$familyScore + H:$healthScore). Auto-correcting total score.");
+            _score = expectedTotal.toDouble();
           }
-        } else {
-          _disbursementMultiplier = calculateDisbursementMultiplier(_score);
         }
+
+        // Xác định hệ số giải ngân dựa trên điểm đã được hiệu chỉnh chính xác
+        _disbursementMultiplier = calculateDisbursementMultiplier(_score);
 
         if (_score > 0) {
           // 1. Lấy số tiền đề xuất
@@ -217,13 +229,15 @@ class ResultViewModel extends ChangeNotifier {
       _lastScoringData = {
         "status": _isCaseClosed ? "TẠM DỪNG - ĐÓNG CA" : (_isInsufficient ? "CHƯA ĐỦ THÔNG TIN" : (statusText.isNotEmpty ? statusText : "HỢP LỆ")),
         "emergency": emergencyText,
-        "emergency_score": ?emergencyScore,
-        "income_rrtc": incomeText,
-        "income_score": ?incomeScore,
+        "emergency_score": emergencyScore,
+        "income_rrtc": incomeScore != null && !incomeText.startsWith("$incomeScore/")
+            ? "$incomeScore/35 - ${incomeText.replaceFirst(RegExp(r'^\d+\s*/\s*35\s*-\s*'), '')}"
+            : incomeText,
+        "income_score": incomeScore,
         "family": familyText,
-        "family_score": ?familyScore,
+        "family_score": familyScore,
         "health": healthText,
-        "health_score": ?healthScore,
+        "health_score": healthScore,
         "distress_score": _score.toInt(),
         if (formulaText.isNotEmpty) "formula": formulaText,
         "disbursement_multiplier": _disbursementMultiplier,

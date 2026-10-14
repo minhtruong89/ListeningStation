@@ -132,7 +132,8 @@ Ma trận tính điểm (Nợ so với thu nhập tháng x Tài sản bán/cầm
 
 Trạng thái: <HỢP LỆ / CHƯA ĐỦ THÔNG TIN / TẠM DỪNG - ĐÓNG CA>
 Emergency: <điểm>/35 - <mức và lý do ngắn>
-Income & RRTC: <điểm>/35 - <Phần A: thu nhập bình quân ... đ/ngày (<điểm>đ) + Phần B: nợ ..., tài sản ... (<điểm>đ)>
+Income & RRTC: <điểm>/35 - <Phần A: thu nhập bình quân ... đ/ngày (<điểm A>đ) + Phần B: nợ ..., tài sản ... (<điểm B>đ)>
+* QUY TẮC SỐ HỌC BẮT BUỘC CHO INCOME & RRTC: Con số <điểm> ở đầu dòng (<điểm>/35) BẮT BUỘC PHẢI LÀ TỔNG CỦA (Điểm Phần A + Điểm Phần B). Ví dụ: Phần A được 18đ, Phần B được 10đ -> BẮT BUỘC ghi là "Income & RRTC: 28/35 - Phần A... (18đ) + Phần B... (10đ)". TUYỆT ĐỐI CẤM ghi con số khác tổng của Phần A và Phần B!
 Family: <điểm>/30 - <mức và lý do ngắn, số người phụ thuộc>
 Health: <điểm>/30 - <mức và lý do ngắn>
 
@@ -148,6 +149,8 @@ Kết luận: <1-2 câu đánh giá tổng thể hoàn cảnh và mức độ ư
 
 Yêu cầu quan trọng:
 - BẮT BUỘC phải có dòng "Total Score: <con số>" (chỉ chứa một số nguyên từ 0 đến 100) để hệ thống tự động trích xuất điểm Severity.
+- Kiểm tra tính nhất quán số học tuyệt đối:
+  + Điểm Income & RRTC (<điểm>/35) BẮT BUỘC = Điểm Phần A + Điểm Phần B (tối đa 35đ).
+  + Total Score BẮT BUỘC = MIN(100, Emergency + Income&RRTC + Family + Health). Không được cộng nhầm hay lấy nhầm con số khác.
 - Khi cuộc hội thoại bị dừng sớm hoặc thiếu các thông tin cốt lõi (nhu cầu cần giúp, thời hạn khẩn cấp), BẮT BUỘC ghi "Trạng thái: CHƯA ĐỦ THÔNG TIN", "Total Score: 0", "Hệ số giải ngân: 0%".
-- Tính toán chính xác theo công thức và ngưỡng quy định.
 - Tuyệt đối không tự ý suy diễn hoặc bịa đặt thông tin ngoài nội dung hội thoại được cung cấp.

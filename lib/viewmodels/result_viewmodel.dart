@@ -44,16 +44,18 @@ class ResultViewModel extends ChangeNotifier {
 
   /// Tính hệ số giải ngân dựa theo bảng quy tắc Distress/Severity Score:
   /// - Severity = 0 (hoặc TẠM DỪNG - ĐÓNG CA): 0% (0.0)
-  /// - Severity >= 76: 120% (1.20)
-  /// - Severity >= 51: 100% (1.00)
-  /// - Severity >= 26: 80% (0.80)
-  /// - Severity < 26: 60% (0.60)
+  /// - Severity từ 1 đến 20: 20% (0.20)
+  /// - Severity từ 21 đến 40: 40% (0.40)
+  /// - Severity từ 41 đến 60: 60% (0.60)
+  /// - Severity từ 61 đến 80: 80% (0.80)
+  /// - Severity từ 81 đến 100: 100% (1.00)
   double calculateDisbursementMultiplier(double severityScore) {
     if (severityScore <= 0) return 0.0;
-    if (severityScore >= 76) return 1.20;
-    if (severityScore >= 51) return 1.00;
-    if (severityScore >= 26) return 0.80;
-    return 0.60;
+    if (severityScore >= 81) return 1.00;
+    if (severityScore >= 61) return 0.80;
+    if (severityScore >= 41) return 0.60;
+    if (severityScore >= 21) return 0.40;
+    return 0.20;
   }
 
   Future<void> calculateScoreAsync() async {
@@ -94,7 +96,7 @@ class ResultViewModel extends ChangeNotifier {
       final verificationTierText = _extractSection(scoreStr, RegExp(r'(?:Xác minh chứng cứ|Verification Tier)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
       final conclusionText = _extractSection(scoreStr, RegExp(r'(?:Kết luận|Conclusion)[^\n:]*:\s*([^\n]+)', caseSensitive: false));
 
-      int? emergencyScore = _extractScoreNumber(emergencyText, 35);
+      int? emergencyScore = _extractScoreNumber(emergencyText, 25) ?? _extractScoreNumber(emergencyText, 35);
       int? incomeScore = _extractScoreNumber(incomeText, 35);
       int? familyScore = _extractScoreNumber(familyText, 30);
       int? healthScore = _extractScoreNumber(healthText, 30);

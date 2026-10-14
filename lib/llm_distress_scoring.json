@@ -24,7 +24,7 @@ BẢNG ĐIỂM THAM CHIẾU
   + HOẶC người được phỏng vấn xác nhận rõ ràng KHÔNG CÓ NHU CẦU NHẬN HỖ TRỢ TIỀN BẠC / KINH PHÍ, chỉ muốn tư vấn tâm lý, tâm sự giãi bày (Quỹ không có chức năng tư vấn tâm lý chuyên sâu);
 - XỬ LÝ NGAY LẬP TỨC:
   + Trạng thái: TẠM DỪNG - ĐÓNG CA (Đóng ca hẳn)
-  + Emergency: 0/35 - Không hợp lệ
+  + Emergency: 0/25 - Không hợp lệ
   + Income & RRTC: 0/35 - Không hợp lệ
   + Family: 0/30 - Không hợp lệ
   + Health: 0/30 - Không hợp lệ
@@ -42,12 +42,12 @@ BẢNG ĐIỂM THAM CHIẾU
      * NẾU cuộc hội thoại kết thúc khi người được phỏng vấn CHƯA HỀ ĐƯA RA YÊU CẦU CẦN GIÚP ĐỠ GÌ (hoặc Trạm Lắng Nghe chưa kịp hỏi câu "Cô bác đang cần Quỹ hỗ trợ cụ thể điều gì / như thế nào?") -> BẮT BUỘC ĐÁNH GIÁ LÀ "CHƯA ĐỦ THÔNG TIN".
   2. Khó khăn cụ thể: Đã nêu rõ hoàn cảnh khó khăn cốt lõi đang gặp phải (ví dụ: bị bệnh tật, tai nạn, mất nguồn thu nhập, một mình nuôi con nhỏ/mẹ già, không có tiền chi trả sinh hoạt thiết yếu...).
   3. Mức độ khẩn cấp (Emergency): Phải có câu hỏi và câu trả lời cụ thể trong hội thoại về mốc thời gian cần hỗ trợ (ví dụ câu hỏi: "Khoản này cô bác cần trong bao lâu / khi nào cần gấp?", và người trả lời nêu rõ: ngay hôm nay, trong vài ngày tới, trong vài tuần tới, hay hoàn cảnh chưa gấp).
-     * NẾU cuộc hội thoại chưa hỏi đến câu hỏi thời hạn cần giúp hoặc người được phỏng vấn chưa trả lời về thời gian cần hỗ trợ -> TUYỆT ĐỐI CẤM TỰ Ý BỊA ĐIỂM (như tự gán "10/35 - Cần trong vài tuần" hay bất kỳ điểm nào). Đây là hành vi bịa đặt điểm số sai quy định! Trường hợp này BẮT BUỘC ĐÁNH GIÁ LÀ "CHƯA ĐỦ THÔNG TIN".
+     * NẾU cuộc hội thoại chưa hỏi đến câu hỏi thời hạn cần giúp hoặc người được phỏng vấn chưa trả lời về thời gian cần hỗ trợ -> TUYỆT ĐỐI CẤM TỰ Ý BỊA ĐIỂM (như tự gán "8/25 - Cần trong vài tuần" hay bất kỳ điểm nào). Đây là hành vi bịa đặt điểm số sai quy định! Trường hợp này BẮT BUỘC ĐÁNH GIÁ LÀ "CHƯA ĐỦ THÔNG TIN".
   4. Hội thoại kết thúc sớm / bị ngắt quãng giữa chừng:
      * Nếu cuộc hội thoại mới chỉ dừng lại ở các thông tin ban đầu (như chỉ mới hỏi tên, tuổi, nghề nghiệp, số người, sổ hộ nghèo hoặc nợ tiền mà chưa hỏi xong phần khó khăn, nhu cầu hỗ trợ, thời hạn khẩn cấp, tình trạng sức khỏe...) -> BẮT BUỘC ĐÁNH GIÁ LÀ "CHƯA ĐỦ THÔNG TIN", TUYỆT ĐỐI KHÔNG ĐƯỢC RÁNG TÍNH TOÁN RA ĐIỂM!
 - XỬ LÝ KHI RƠI VÀO TRƯỜNG HỢP CHƯA ĐỦ THÔNG TIN:
   + Trạng thái: CHƯA ĐỦ THÔNG TIN
-  + Emergency: 0/35 - Chưa có thông tin (chưa hỏi/chưa trả lời về thời hạn cần hỗ trợ)
+  + Emergency: 0/25 - Chưa có thông tin (chưa hỏi/chưa trả lời về thời hạn cần hỗ trợ)
   + Income & RRTC: Ghi nhận mức điểm dựa trên dữ liệu thu nhập/gia đình đã có (nếu có), hoặc ghi 0/35 nếu chưa có thông tin.
   + Family: Ghi nhận mức điểm dựa trên dữ liệu người phụ thuộc đã có (nếu có), hoặc ghi 0/30 nếu chưa có thông tin.
   + Health: 0/30 - Chưa có thông tin (chưa hỏi/chưa cung cấp vấn đề y tế)
@@ -66,13 +66,18 @@ BẢNG ĐIỂM THAM CHIẾU
 - Bệnh nặng: 20 điểm (Có chỉ định nhập viện/phẫu thuật, chưa đe dọa tính mạng tức thời).
 - Đe dọa tính mạng: 30 điểm (Cấp cứu, hồi sức tích cực (ICU), ung thư giai đoạn cuối, chờ ghép tạng...).
 * Lưu ý quan trọng về Health:
-  + Emergency (35) + Income&RRTC (35) + Family (30) đã tự đủ 100 điểm. Một ca KHÔNG có yếu tố y tế vẫn có thể đạt tối đa 100 điểm. Health chỉ CỘNG THÊM khi có bệnh, và tổng cuối cùng bị chặn trần ở 100 điểm (không vượt quá 100).
+  + Health là điểm CỘNG THÊM vào hoàn cảnh (tối đa 30 điểm). Tổng điểm Severity = MIN(100, Emergency + Income&RRTC + Family + Health), bị chặn trần ở 100 điểm (không vượt quá 100).
   + Nếu cuộc hội thoại chưa hỏi đến vấn đề sức khỏe/y tế (do kết thúc sớm), TUYỆT ĐỐI CẤM tự ý kết luận "Không có vấn đề y tế". Hãy ghi rõ: "0/30 - Chưa có thông tin y tế do hội thoại chưa đề cập đến".
 
 2. Income — Phần A: Thu nhập nền (đ/ngày, bình quân đầu người) — tối đa 25 điểm
 * ƯU TIÊN SỐ 1: Dùng khi có đủ số liệu thu nhập hiện tại:
   - Quy đổi: nếu thu nhập khai theo THÁNG, quy về theo NGÀY bằng cách chia cho 30.
-  - Thu nhập bình quân đầu người/ngày = (thu nhập người được phỏng vấn + thu nhập các thành viên khác đang đi làm, đã quy đổi theo ngày) / số nhân khẩu trong hộ.
+  - Cách xác định số người để chia thu nhập (CỰC KỲ QUAN TRỌNG):
+    + Số người chia = 1 (bản thân người được phỏng vấn) + Số người phụ thuộc thực tế (trẻ em dưới 15 tuổi, người già ≥70 tuổi, người bệnh mất sức lao động mà người này phải nuôi).
+    + CẢNH BÁO TUYỆT ĐỐI TRÁNH SAI LẦM: Con cái hoặc thành viên trong nhà đã trưởng thành (≥18 tuổi) có khả năng tự lo, tự đi làm, không phụ thuộc kinh tế vào người phỏng vấn thì TUYỆT ĐỐI KHÔNG ĐƯỢC tính vào số người chia thu nhập!
+      (Ví dụ điển hình: Người mẹ kiếm 150.000 đ/ngày, có 2 con 18 và 26 tuổi tự lo được không phụ thuộc -> Số người chia CHỈ LÀ 1 (chính người mẹ) -> Thu nhập là 150.000 / 1 = 150.000 đ/ngày -> 0 điểm (Ổn định). TUYỆT ĐỐI CẤM chia cho 3 để ra 50.000 đ/ngày).
+    + Nếu cả gia đình cùng đóng góp thu nhập chung, thì: Thu nhập bình quân đầu người = (Tổng thu nhập chung cả gia đình) / (Tổng số nhân khẩu trong hộ).
+  - Thu nhập bình quân đầu người/ngày = (Thu nhập tính toán) / (Số người chia xác định ở trên).
   - Mức điểm:
     + Ổn định: 0 điểm (≥ 150.000 đ/ngày/đầu người)
     + Thu nhập thấp: 10 điểm (≥ 93.000 và < 150.000 đ/ngày/đầu người)
@@ -105,20 +110,21 @@ Ma trận tính điểm (Nợ so với thu nhập tháng x Tài sản bán/cầm
   + Số người phụ thuộc KHÔNG BAO GỒM bản thân người được phỏng vấn (người lao động chính).
   + Ví dụ: Gia đình có 3 người gồm bản thân người phỏng vấn + mẹ già + 1 cháu nhỏ thì số người phụ thuộc CHỈ LÀ 2 NGƯỜI → Mức điểm là 18 ĐIỂM (không được tính là 3 người phụ thuộc).
 
-5. Emergency (Mức độ khẩn cấp) — tối đa 35 điểm
+5. Emergency (Mức độ khẩn cấp) — tối đa 25 điểm
 - Chưa gấp: 0 điểm (Có hỏi và xác nhận hoàn cảnh chưa gấp, không có mốc thời gian hay hệ quả cụ thể nếu chờ thêm).
-- Cần trong vài tuần: 10 điểm (Người phỏng vấn NÓI RÕ mốc thời gian cụ thể trong ≤30 ngày, chưa có rủi ro cấp tính nếu chậm vài ngày).
-- Cần trong vài ngày: 20 điểm (Người phỏng vấn NÓI RÕ hệ quả cụ thể xảy ra trong ≤7 ngày nếu không được hỗ trợ như bị cắt điện/nước, hết thuốc, sắp bị đuổi trọ...).
-- Cần ngay hôm nay: 35 điểm (Người phỏng vấn NÓI RÕ hệ quả xảy ra TRONG NGÀY nếu không hỗ trợ như cần nhập viện, cần xe về gấp do sự cố khẩn...).
+- Cần trong vài tuần: 8 điểm (Người phỏng vấn NÓI RÕ mốc thời gian cụ thể trong ≤30 ngày, chưa có rủi ro cấp tính nếu chậm vài ngày).
+- Cần trong vài ngày: 15 điểm (Người phỏng vấn NÓI RÕ hệ quả cụ thể xảy ra trong ≤7 ngày nếu không được hỗ trợ như bị cắt điện/nước, hết thuốc, sắp bị đuổi trọ...).
+- Cần ngay hôm nay: 25 điểm (Người phỏng vấn NÓI RÕ hệ quả xảy ra TRONG NGÀY nếu không hỗ trợ như cần nhập viện, cần xe về gấp do sự cố khẩn...).
 * LƯU Ý KỶ LUẬT VỀ EMERGENCY:
-  + TUYỆT ĐỐI CẤM TỰ BỊA ĐIỂM: Nếu cuộc hội thoại chưa hỏi đến câu hỏi thời hạn cần giúp (khi nào cần / cần gấp trong bao lâu) hoặc người được phỏng vấn chưa trả lời về thời gian cần hỗ trợ, TUYỆT ĐỐI CẤM tự ý gán mức "10/35 - Cần trong vài tuần"! Không có thông tin thì ghi rõ: "0/35 - Chưa có thông tin về thời hạn cần hỗ trợ".
+  + TUYỆT ĐỐI CẤM TỰ BỊA ĐIỂM: Nếu cuộc hội thoại chưa hỏi đến câu hỏi thời hạn cần giúp (khi nào cần / cần gấp trong bao lâu) hoặc người được phỏng vấn chưa trả lời về thời gian cần hỗ trợ, TUYỆT ĐỐI CẤM tự ý gán bất kỳ mức điểm nào (kể cả 8/25)! Không có thông tin thì ghi rõ: "0/25 - Chưa có thông tin về thời hạn cần hỗ trợ".
 
 6. Hệ số giải ngân theo Severity Score (áp vào số tiền bảo chứng đề xuất)
 - Severity = 0 (hoặc CHƯA ĐỦ THÔNG TIN / TẠM DỪNG - ĐÓNG CA): Hệ số 0%
-- Severity từ 1 đến 25: Hệ số 60%
-- Severity từ 26 đến 50: Hệ số 80%
-- Severity từ 51 đến 75: Hệ số 100%
-- Severity từ 76 đến 100: Hệ số 120%
+- Severity từ 1 đến 20: Hệ số 20%
+- Severity từ 21 đến 40: Hệ số 40%
+- Severity từ 41 đến 60: Hệ số 60%
+- Severity từ 61 đến 80: Hệ số 80%
+- Severity từ 81 đến 100: Hệ số 100%
 
 7. Verification Tier (Cấp độ xác minh)
 - Mức A: Có giấy tờ/hình ảnh ghi nhận (video/ảnh/đơn thuốc/giấy tờ) nhưng CHƯA xác minh đúng sai → xử lý tự động.
@@ -131,7 +137,7 @@ Ma trận tính điểm (Nợ so với thu nhập tháng x Tài sản bán/cầm
 Định dạng output (BẮT BUỘC):
 
 Trạng thái: <HỢP LỆ / CHƯA ĐỦ THÔNG TIN / TẠM DỪNG - ĐÓNG CA>
-Emergency: <điểm>/35 - <mức và lý do ngắn>
+Emergency: <điểm>/25 - <mức và lý do ngắn>
 Income & RRTC: <điểm>/35 - <Phần A: thu nhập bình quân ... đ/ngày (<điểm A>đ) + Phần B: nợ ..., tài sản ... (<điểm B>đ)>
 * QUY TẮC SỐ HỌC BẮT BUỘC CHO INCOME & RRTC: Con số <điểm> ở đầu dòng (<điểm>/35) BẮT BUỘC PHẢI LÀ TỔNG CỦA (Điểm Phần A + Điểm Phần B). Ví dụ: Phần A được 18đ, Phần B được 10đ -> BẮT BUỘC ghi là "Income & RRTC: 28/35 - Phần A... (18đ) + Phần B... (10đ)". TUYỆT ĐỐI CẤM ghi con số khác tổng của Phần A và Phần B!
 Family: <điểm>/30 - <mức và lý do ngắn, số người phụ thuộc>
@@ -140,7 +146,7 @@ Health: <điểm>/30 - <mức và lý do ngắn>
 Total Score: <điểm Severity từ 0 đến 100, NẾU CHƯA ĐỦ THÔNG TIN THÌ BẮT BUỘC LÀ 0>
 Công thức: MIN(100, Emergency + Income&RRTC + Family + Health) = <tổng tính toán, hoặc: Chưa đủ thông tin bắt buộc để tính điểm (Total Score = 0)>
 
-Hệ số giải ngân: <0% / 60% / 80% / 100% / 120%>
+Hệ số giải ngân: <0% / 20% / 40% / 60% / 80% / 100%>
 Xác minh chứng cứ: <Mức A - Xử lý tự động / Mức B - Cảnh báo xét duyệt thủ công / Chưa hoàn thành phỏng vấn - Cần bổ sung thông tin / Từ chối> - <lý do ngắn>
 
 Kết luận: <1-2 câu đánh giá tổng thể hoàn cảnh và mức độ ưu tiên hoặc lý do CHƯA ĐỦ THÔNG TIN / TẠM DỪNG - ĐÓNG CA>

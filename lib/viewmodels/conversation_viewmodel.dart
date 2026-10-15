@@ -34,12 +34,13 @@ class ConversationViewModel extends ChangeNotifier {
   bool _isFinalizing = false;
   VoidCallback? onNavigateToResult;
 
+  bool _isFinalizingTriggered = false;
   bool _isCaseClosingTriggered = false;
-  Timer? _closeCaseTimer;
-
-  bool _isPendingAutoFinalize = false;
-  DateTime? _autoFinalizeDetectedTime;
-  Timer? _autoFinalizeTimer;
+  DateTime? _finalizeDetectedTime;
+  DateTime? _finalizeLastTextTime;
+  String _finalizeFullText = "";
+  Timer? _finalizeTimer;
+  Timer? _finalizeBufferTimer;
   StreamSubscription? _vapiSpeechUpdateSub;
 
   bool _isVoiceInputActive = false;
@@ -514,12 +515,15 @@ class ConversationViewModel extends ChangeNotifier {
     _vapiTranscriptSub?.cancel();
     _vapiStateSub?.cancel();
     _vapiSpeechUpdateSub?.cancel();
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-    _closeCaseTimer?.cancel();
-    _closeCaseTimer = null;
-    _isPendingAutoFinalize = false;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    _finalizeBufferTimer?.cancel();
+    _finalizeBufferTimer = null;
+    _isFinalizingTriggered = false;
     _isCaseClosingTriggered = false;
+    _finalizeFullText = "";
+    _finalizeDetectedTime = null;
+    _finalizeLastTextTime = null;
     _storytellingStartTimer?.cancel();
     _storytellingStartTimer = null;
     _isPendingStorytellingStart = false;
@@ -599,21 +603,16 @@ class ConversationViewModel extends ChangeNotifier {
           final lastVm = _messages.last;
           if (lastVm.sender == 'Trạm Lắng Nghe') {
             if (_isGuardClosingPhrase(lastVm.content)) {
-              LogService.log("[ConversationVM] ConversationUpdate detected case closing phrase -> Triggering immediate case closure");
-              _triggerImmediateCaseClosure();
+              LogService.log("[ConversationVM] ConversationUpdate detected case closing phrase -> Starting finalize watcher (closing)");
+              _startFinalizeWatcher(fullText: lastVm.content, isClosing: true);
               _scheduleSaveSessionLog();
               notifyListeners();
               return;
             } else if (_isCompletionPhrase(lastVm.content)) {
-              if (flagVAPI) {
-                _vapiService.setMuted(true);
-              }
-              if (!_isPendingAutoFinalize) {
-                _isPendingAutoFinalize = true;
-                _autoFinalizeDetectedTime = DateTime.now();
-                LogService.log("[ConversationVM] ConversationUpdate detected completion phrase -> Starting auto-finalize watcher");
-              }
-              _scheduleAutoFinalizeCheck(lastVm.content);
+              LogService.log("[ConversationVM] ConversationUpdate detected completion phrase -> Starting finalize watcher (completion)");
+              _startFinalizeWatcher(fullText: lastVm.content, isClosing: false);
+            } else if (_isFinalizingTriggered) {
+              _startFinalizeWatcher(fullText: lastVm.content, isClosing: _isCaseClosingTriggered);
             }
           }
         }
@@ -630,9 +629,9 @@ class ConversationViewModel extends ChangeNotifier {
 
         final speaker = vm.speaker;
 
-        // Nếu đã kích hoạt ĐÓNG CA: Bỏ qua hoàn toàn mọi lời nói từ người dùng để không tiếp tục nói chuyện
-        if (_isCaseClosingTriggered && speaker == 'Người cần giúp đỡ') {
-          LogService.log("[ConversationVM] Case is already closing -> Ignoring user speech '$newText'");
+        // Nếu đã kích hoạt ĐÓNG CA hoặc HOÀN TẤT: Bỏ qua hoàn toàn mọi lời nói từ người dùng để không tiếp tục nói chuyện
+        if ((_isCaseClosingTriggered || _isFinalizingTriggered) && speaker == 'Người cần giúp đỡ') {
+          LogService.log("[ConversationVM] Finalizing is active -> Ignoring user speech '$newText'");
           continue;
         }
 
@@ -763,18 +762,13 @@ class ConversationViewModel extends ChangeNotifier {
         // Tự động kết thúc hội thoại khi AI nói câu ĐÓNG CA hoặc HOÀN TẤT
         if (speaker == 'Trạm Lắng Nghe' && !_isFinalizing) {
           if (_isGuardClosingPhrase(newText)) {
-            LogService.log("[ConversationVM] Live stream detected case closing phrase -> Triggering immediate case closure");
-            _triggerImmediateCaseClosure();
+            LogService.log("[ConversationVM] Live stream detected case closing phrase -> Starting finalize watcher (closing)");
+            _startFinalizeWatcher(fullText: newText, isClosing: true);
           } else if (_isCompletionPhrase(newText)) {
-            if (flagVAPI) {
-              _vapiService.setMuted(true);
-            }
-            if (!_isPendingAutoFinalize) {
-              _isPendingAutoFinalize = true;
-              _autoFinalizeDetectedTime = DateTime.now();
-              LogService.log("[ConversationVM] Live stream detected completion phrase -> Starting auto-finalize watcher");
-            }
-            _scheduleAutoFinalizeCheck(newText);
+            LogService.log("[ConversationVM] Live stream detected completion phrase -> Starting finalize watcher (completion)");
+            _startFinalizeWatcher(fullText: newText, isClosing: false);
+          } else if (_isFinalizingTriggered) {
+            _startFinalizeWatcher(fullText: newText, isClosing: _isCaseClosingTriggered);
           }
         }
       }
@@ -827,89 +821,114 @@ class ConversationViewModel extends ChangeNotifier {
         }
       }
 
-      // Nếu đang trong quá trình đóng ca mà trợ lý đã dứt lời -> Chuyển ngay lập tức sang ResultView
-      if (_isCaseClosingTriggered && !_isFinalizing) {
+      // Xử lý khi AI hoàn tất nói câu ĐÓNG CA hoặc HOÀN TẤT (chờ đọc xong toàn bộ câu mới chuyển)
+      if (_isFinalizingTriggered && !_isFinalizing) {
         if (status.contains('stopped') && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
-          LogService.log("[ConversationVM] Speech stopped received after case closing -> Immediately finalizing to ResultView");
-          _closeCaseTimer?.cancel();
-          _closeCaseTimer = null;
-          showFinalizeAsync();
-          return;
-        }
-      }
+          final wordCount = _finalizeFullText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+          final elapsedSinceStart = _finalizeDetectedTime != null
+              ? DateTime.now().difference(_finalizeDetectedTime!).inMilliseconds
+              : 0;
+          final elapsedSinceText = _finalizeLastTextTime != null
+              ? DateTime.now().difference(_finalizeLastTextTime!).inMilliseconds
+              : 0;
 
-      // Xử lý khi AI dứt lời sau câu hoàn tất hội thoại bình thường
-      if (!_isPendingAutoFinalize || _isFinalizing) return;
-      if (status.contains('stopped') && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
-        LogService.log("[ConversationVM] Speech stopped received after completion sentence -> Completing auto-finalize");
-        _completeAutoFinalize();
+          // Điều kiện nhận diện trợ lý đã đọc xong toàn bộ câu:
+          // 1. Phải đạt ít nhất thời gian đọc tối thiểu (200ms/từ hoặc tối thiểu 2000ms)
+          // 2. Không vừa mới nhận thêm text mới trong vòng 800ms
+          final minSpeechMs = math.max(2000, wordCount * 200);
+
+          if (elapsedSinceStart >= minSpeechMs && elapsedSinceText >= 800) {
+            LogService.log("[ConversationVM] Assistant finished speaking complete phrase (words: $wordCount, elapsed: ${elapsedSinceStart}ms >= min: ${minSpeechMs}ms) -> Buffering 600ms before ResultView");
+            _finalizeBufferTimer?.cancel();
+            _finalizeBufferTimer = Timer(const Duration(milliseconds: 600), () {
+              if (_isFinalizingTriggered && !_isFinalizing) {
+                _finishAndNavigateToResult();
+              }
+            });
+          } else {
+            LogService.log("[ConversationVM] Ignored assistant speech stopped event (elapsed: ${elapsedSinceStart}ms < min: ${minSpeechMs}ms or text elapsed: ${elapsedSinceText}ms < 800ms, likely mid-sentence pause)");
+          }
+        } else if (status.contains('started') && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
+          // Trợ lý tiếp tục đọc vế tiếp theo -> Hủy bộ đệm chuyển view nếu đang chờ
+          _finalizeBufferTimer?.cancel();
+          _finalizeBufferTimer = null;
+        }
       }
     });
 
     _vapiService.startCall(assistantId: "326d0d50-c102-446b-9fc5-90265dd901ae");
   }
 
-  void _scheduleAutoFinalizeCheck(String fullText) {
-    _autoFinalizeTimer?.cancel();
-
-    final wordCount = fullText.trim().split(RegExp(r'\s+')).length;
-    // Tốc độ đọc tự nhiên: ~220ms/từ, chặn trần tối đa 4.5s để không bắt người dùng chờ lâu
-    final estimatedReadingMs = math.min(4500, (wordCount * 220) + 1200);
-    final elapsedMs = _autoFinalizeDetectedTime != null
-        ? DateTime.now().difference(_autoFinalizeDetectedTime!).inMilliseconds
-        : 0;
-    final remainingMs = math.max(1500, estimatedReadingMs - elapsedMs);
-
-    LogService.log("[ConversationVM] Auto-finalize scheduled in ${remainingMs}ms (words: $wordCount, elapsed: ${elapsedMs}ms, estTotal: ${estimatedReadingMs}ms)");
-
-    _autoFinalizeTimer = Timer(Duration(milliseconds: remainingMs), () {
-      if (!_isPendingAutoFinalize || _isFinalizing) return;
-
-      LogService.log("[ConversationVM] Completion speech duration elapsed -> Completing finalize");
-      _completeAutoFinalize();
-    });
-  }
-
-  void _completeAutoFinalize() {
+  void _startFinalizeWatcher({required String fullText, required bool isClosing}) {
     if (_isFinalizing) return;
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-    _isPendingAutoFinalize = false;
 
-    LogService.log("[ConversationVM] AI has finished speaking the complete sentence -> Cleanly transitioning to ResultView");
-    SpeechService.sendAnimationFace("SILIENCE");
+    if (!_isFinalizingTriggered) {
+      _isFinalizingTriggered = true;
+      _isCaseClosingTriggered = isClosing;
+      _finalizeDetectedTime = DateTime.now();
+      _finalizeLastTextTime = DateTime.now();
+      _finalizeFullText = fullText.trim();
 
-    // Đợi thêm 400ms để âm thanh dứt hoàn toàn tự nhiên trước khi chuyển view
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (!_isFinalizing) {
-        showFinalizeAsync();
+      LogService.log("[ConversationVM] Finalize watcher triggered (isClosing: $isClosing) -> Muting microphone immediately while assistant finishes speaking");
+      if (flagVAPI) {
+        _vapiService.setMuted(true);
+        _vapiService.setSpeakerMuted(false);
       }
-    });
-  }
-
-  void _triggerImmediateCaseClosure() {
-    if (_isFinalizing || _isCaseClosingTriggered) return;
-    _isCaseClosingTriggered = true;
-    _isPendingAutoFinalize = false;
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-
-    LogService.log("[ConversationVM] Case closing decision confirmed -> Muting microphone immediately and switching to ResultView");
-
-    // 1. Mute microphone ngay lập tức để Vapi không nghe người dùng nói tiếp nữa
-    if (flagVAPI) {
-      _vapiService.setMuted(true);
+    } else {
+      if (isClosing) {
+        _isCaseClosingTriggered = true;
+      }
+      final trimmed = fullText.trim();
+      if (trimmed.isNotEmpty) {
+        if (_finalizeFullText.contains(trimmed)) {
+          // Text already captured
+        } else if (trimmed.contains(_finalizeFullText)) {
+          // New text is an extended version of previous text
+          _finalizeFullText = trimmed;
+          _finalizeLastTextTime = DateTime.now();
+        } else {
+          // Additional distinct sentence or utterance from assistant
+          _finalizeFullText = "$_finalizeFullText $trimmed".trim();
+          _finalizeLastTextTime = DateTime.now();
+        }
+      }
     }
 
+    _rescheduleFinalizeTimer();
+  }
+
+  void _rescheduleFinalizeTimer() {
+    _finalizeTimer?.cancel();
+
+    final wordCount = _finalizeFullText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    // Tốc độ nói tiếng Việt tự nhiên: ~320ms/từ. Cộng thêm 2.5s đệm an toàn.
+    final estimatedReadingMs = (wordCount * 320) + 1500;
+    final elapsedMs = _finalizeDetectedTime != null
+        ? DateTime.now().difference(_finalizeDetectedTime!).inMilliseconds
+        : 0;
+    final remainingMs = math.max(2500, estimatedReadingMs - elapsedMs);
+
+    LogService.log("[ConversationVM] Finalize fallback timer scheduled in ${remainingMs}ms (words: $wordCount, elapsed: ${elapsedMs}ms, estTotal: ${estimatedReadingMs}ms, isClosing: $_isCaseClosingTriggered)");
+
+    _finalizeTimer = Timer(Duration(milliseconds: remainingMs), () {
+      if (!_isFinalizingTriggered || _isFinalizing) return;
+      LogService.log("[ConversationVM] Finalize fallback timer elapsed -> Transitioning to ResultView");
+      _finishAndNavigateToResult();
+    });
+  }
+
+  void _finishAndNavigateToResult() {
+    if (_isFinalizing) return;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    _finalizeBufferTimer?.cancel();
+    _finalizeBufferTimer = null;
+    _isFinalizingTriggered = false;
+
+    LogService.log("[ConversationVM] Assistant finished speaking complete sentence -> Cleanly transitioning to ResultView");
     SpeechService.sendAnimationFace("SILIENCE");
 
-    // 2. Chuyển ngay qua ResultView sau một khoảng đệm cực ngắn (500ms) để cập nhật UI mượt mà
-    _closeCaseTimer?.cancel();
-    _closeCaseTimer = Timer(const Duration(milliseconds: 500), () {
-      if (!_isFinalizing) {
-        showFinalizeAsync();
-      }
-    });
+    showFinalizeAsync();
   }
 
   bool _isGuardClosingPhrase(String text) {
@@ -967,9 +986,12 @@ class ConversationViewModel extends ChangeNotifier {
       _speechService.stop();
       _initVapi();
     } else {
-      _autoFinalizeTimer?.cancel();
-      _autoFinalizeTimer = null;
-      _isPendingAutoFinalize = false;
+      _finalizeTimer?.cancel();
+      _finalizeTimer = null;
+      _finalizeBufferTimer?.cancel();
+      _finalizeBufferTimer = null;
+      _isFinalizingTriggered = false;
+      _isCaseClosingTriggered = false;
       _storytellingStartTimer?.cancel();
       _storytellingStartTimer = null;
       _isPendingStorytellingStart = false;
@@ -986,9 +1008,12 @@ class ConversationViewModel extends ChangeNotifier {
   void dispose() {
     _streamingNotifyTimer?.cancel();
     _streamingNotifyTimer = null;
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-    _isPendingAutoFinalize = false;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    _finalizeBufferTimer?.cancel();
+    _finalizeBufferTimer = null;
+    _isFinalizingTriggered = false;
+    _isCaseClosingTriggered = false;
     _storytellingStartTimer?.cancel();
     _storytellingStartTimer = null;
     _isPendingStorytellingStart = false;
@@ -1142,11 +1167,15 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   Future<void> showFinalizeAsync({VoidCallback? onNavigation}) async {
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-    _closeCaseTimer?.cancel();
-    _closeCaseTimer = null;
-    _isPendingAutoFinalize = false;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    _finalizeBufferTimer?.cancel();
+    _finalizeBufferTimer = null;
+    _isFinalizingTriggered = false;
+    _isCaseClosingTriggered = false;
+    _finalizeFullText = "";
+    _finalizeDetectedTime = null;
+    _finalizeLastTextTime = null;
     _storytellingStartTimer?.cancel();
     _storytellingStartTimer = null;
     _isPendingStorytellingStart = false;
@@ -1184,12 +1213,15 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   void cancelFinalize() {
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-    _closeCaseTimer?.cancel();
-    _closeCaseTimer = null;
-    _isPendingAutoFinalize = false;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    _finalizeBufferTimer?.cancel();
+    _finalizeBufferTimer = null;
+    _isFinalizingTriggered = false;
     _isCaseClosingTriggered = false;
+    _finalizeFullText = "";
+    _finalizeDetectedTime = null;
+    _finalizeLastTextTime = null;
     _storytellingStartTimer?.cancel();
     _storytellingStartTimer = null;
     _isPendingStorytellingStart = false;
@@ -1255,12 +1287,15 @@ class ConversationViewModel extends ChangeNotifier {
   }
 
   void clearConversation() {
-    _autoFinalizeTimer?.cancel();
-    _autoFinalizeTimer = null;
-    _closeCaseTimer?.cancel();
-    _closeCaseTimer = null;
-    _isPendingAutoFinalize = false;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    _finalizeBufferTimer?.cancel();
+    _finalizeBufferTimer = null;
+    _isFinalizingTriggered = false;
     _isCaseClosingTriggered = false;
+    _finalizeFullText = "";
+    _finalizeDetectedTime = null;
+    _finalizeLastTextTime = null;
     _storytellingStartTimer?.cancel();
     _storytellingStartTimer = null;
     _isPendingStorytellingStart = false;

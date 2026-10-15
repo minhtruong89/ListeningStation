@@ -824,7 +824,6 @@ class ConversationViewModel extends ChangeNotifier {
       // Xử lý khi AI hoàn tất nói câu ĐÓNG CA hoặc HOÀN TẤT (chờ đọc xong toàn bộ câu mới chuyển)
       if (_isFinalizingTriggered && !_isFinalizing) {
         if (status.contains('stopped') && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
-          final wordCount = _finalizeFullText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
           final elapsedSinceStart = _finalizeDetectedTime != null
               ? DateTime.now().difference(_finalizeDetectedTime!).inMilliseconds
               : 0;
@@ -832,21 +831,19 @@ class ConversationViewModel extends ChangeNotifier {
               ? DateTime.now().difference(_finalizeLastTextTime!).inMilliseconds
               : 0;
 
-          // Điều kiện nhận diện trợ lý đã đọc xong toàn bộ câu:
-          // 1. Phải đạt ít nhất thời gian đọc tối thiểu (200ms/từ hoặc tối thiểu 2000ms)
-          // 2. Không vừa mới nhận thêm text mới trong vòng 800ms
-          final minSpeechMs = math.max(2000, wordCount * 200);
-
-          if (elapsedSinceStart >= minSpeechMs && elapsedSinceText >= 800) {
-            LogService.log("[ConversationVM] Assistant finished speaking complete phrase (words: $wordCount, elapsed: ${elapsedSinceStart}ms >= min: ${minSpeechMs}ms) -> Buffering 600ms before ResultView");
+          // Điều kiện nhận diện trợ lý đã đọc xong:
+          // Đã phát âm ít nhất 800ms kể từ khi phát hiện trigger (tránh nhận sự kiện cũ)
+          // và không vừa stream thêm text mới trong vòng 300ms
+          if (elapsedSinceStart >= 800 && elapsedSinceText >= 300) {
+            LogService.log("[ConversationVM] Assistant finished speaking complete phrase (elapsed: ${elapsedSinceStart}ms) -> Buffering 350ms before ResultView");
             _finalizeBufferTimer?.cancel();
-            _finalizeBufferTimer = Timer(const Duration(milliseconds: 600), () {
+            _finalizeBufferTimer = Timer(const Duration(milliseconds: 350), () {
               if (_isFinalizingTriggered && !_isFinalizing) {
                 _finishAndNavigateToResult();
               }
             });
           } else {
-            LogService.log("[ConversationVM] Ignored assistant speech stopped event (elapsed: ${elapsedSinceStart}ms < min: ${minSpeechMs}ms or text elapsed: ${elapsedSinceText}ms < 800ms, likely mid-sentence pause)");
+            LogService.log("[ConversationVM] Ignored assistant speech stopped event too early (elapsedSinceStart: ${elapsedSinceStart}ms, elapsedSinceText: ${elapsedSinceText}ms)");
           }
         } else if (status.contains('started') && (role.isEmpty || role.contains('assistant') || role.contains('bot'))) {
           // Trợ lý tiếp tục đọc vế tiếp theo -> Hủy bộ đệm chuyển view nếu đang chờ
@@ -901,12 +898,12 @@ class ConversationViewModel extends ChangeNotifier {
     _finalizeTimer?.cancel();
 
     final wordCount = _finalizeFullText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
-    // Tốc độ nói tiếng Việt tự nhiên: ~320ms/từ. Cộng thêm 2.5s đệm an toàn.
-    final estimatedReadingMs = (wordCount * 320) + 1500;
+    // Tốc độ nói tiếng Việt tự nhiên: ~220ms/từ. Đệm an toàn 1.2s.
+    final estimatedReadingMs = (wordCount * 220) + 1200;
     final elapsedMs = _finalizeDetectedTime != null
         ? DateTime.now().difference(_finalizeDetectedTime!).inMilliseconds
         : 0;
-    final remainingMs = math.max(2500, estimatedReadingMs - elapsedMs);
+    final remainingMs = math.max(1200, estimatedReadingMs - elapsedMs);
 
     LogService.log("[ConversationVM] Finalize fallback timer scheduled in ${remainingMs}ms (words: $wordCount, elapsed: ${elapsedMs}ms, estTotal: ${estimatedReadingMs}ms, isClosing: $_isCaseClosingTriggered)");
 
